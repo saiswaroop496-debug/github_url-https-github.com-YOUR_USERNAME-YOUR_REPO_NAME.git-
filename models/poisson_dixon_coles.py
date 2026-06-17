@@ -30,9 +30,12 @@ class DixonColesModel:
             j = self.team_to_idx[row['away_team']]
             x = row['home_goals']
             y = row['away_goals']
-            gamma = neutral_gamma if row['is_neutral'] else home_gamma
             
-            lambda_ = exp(attack[i] + defense[j] + gamma)
+            # Use continuous venue_factor (crowd_factor) instead of boolean is_neutral
+            venue_factor = row.get('crowd_factor', 0.0)
+            gamma_eff = neutral_gamma + venue_factor * (home_gamma - neutral_gamma)
+            
+            lambda_ = exp(attack[i] + defense[j] + gamma_eff)
             mu = exp(attack[j] + defense[i])
             
             delta_days = (max_date - row['date']).days
@@ -69,7 +72,7 @@ class DixonColesModel:
         self.neutral_gamma = opt_params[2*n_teams + 1]
         self.rho = opt_params[2*n_teams + 2]
         
-    def predict_proba(self, home_team, away_team, is_neutral, venue_factor=0.0):
+    def predict_proba(self, home_team, away_team, venue_factor=0.0):
         # venue_factor: float [0.0=pure neutral, 0.6=host, 1.0=true home]
         if home_team not in self.attack or away_team not in self.attack:
             return {'Home': 0.33, 'Draw': 0.34, 'Away': 0.33}

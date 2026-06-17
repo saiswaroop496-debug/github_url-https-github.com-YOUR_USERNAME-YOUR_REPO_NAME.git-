@@ -51,8 +51,7 @@ def compute_rolling_features(df):
     df['away_days_since_last'] = df['away_days_since_last'].fillna(7)
     df['rest_differential'] = df['home_days_since_last'] - df['away_days_since_last']
     
-    df['home_neutral_venue_form'] = np.where(df['is_neutral'], 0.6 * df['away_xg_rolling_3'] + 0.4 * df['home_xg_rolling_3'], df['home_xg_rolling_3'])
-    df['away_neutral_venue_form'] = np.where(df['is_neutral'], 0.6 * df['home_xg_rolling_3'] + 0.4 * df['away_xg_rolling_3'], df['away_xg_rolling_3'])
+    df['neutral_xg'] = 0.6 * df['away_xg_rolling_3'] + 0.4 * df['home_xg_rolling_3']
     
     df['xg_ratio'] = df['home_xg_rolling_3'] / (df['away_xg_rolling_3'] + 1e-6)
     
