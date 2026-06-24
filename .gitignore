@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv/
+env/
+venv/
+ENV/
+catboost_info/
+.glicko_cache/
+*.csv
+*.pkl

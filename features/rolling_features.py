@@ -51,8 +51,35 @@ def compute_rolling_features(df):
     df['away_days_since_last'] = df['away_days_since_last'].fillna(7)
     df['rest_differential'] = df['home_days_since_last'] - df['away_days_since_last']
     
-    df['neutral_xg'] = 0.6 * df['away_xg_rolling_3'] + 0.4 * df['home_xg_rolling_3']
+    df['team1_neutral_xg'] = df['home_xg_rolling_3'] # Since all matches are neutral effectively
+    df['team2_neutral_xg'] = df['away_xg_rolling_3']
     
-    df['xg_ratio'] = df['home_xg_rolling_3'] / (df['away_xg_rolling_3'] + 1e-6)
+    df['xg_ratio'] = df['team1_neutral_xg'] / (df['team2_neutral_xg'] + 1e-6)
     
+    return df
+
+def compute_v6_features(df):
+    """
+    Adds V6.0 specific features (draw_affinity, xg_supremacy, glicko_signal)
+    Must be called AFTER Glicko-2 ratings are computed since it uses those fields.
+    """
+    df = df.copy()
+    
+    # 1. Draw Affinity: small xG gap = high draw probability
+    df['xg_gap'] = (df['home_xg_rolling_3'] - df['away_xg_rolling_3']).abs()
+    df['draw_affinity'] = 1.0 - df['xg_gap'].clip(0, 3) / 3.0
+
+    # 2. xG Supremacy Index: relative dominance (replaces two correlated raw cols)
+    total_xg = df['home_xg_rolling_3'] + df['away_xg_rolling_3'] + 1e-9
+    df['xg_supremacy'] = df['home_xg_rolling_3'] / total_xg  # 0.5 = even match
+
+    # 3. Glicko Signal: strength gap scaled by combined uncertainty
+    # Requires home_rd and away_rd from Glicko2RatingSystem
+    if 'home_rd' in df.columns and 'away_rd' in df.columns:
+        rd_combined = np.sqrt(df['home_rd']**2 + df['away_rd']**2) + 1e-9
+        df['glicko_signal'] = (df['home_glicko'] - df['away_glicko']) / rd_combined
+    else:
+        # Fallback if glicko hasn't been run
+        df['glicko_signal'] = 0.0
+
     return df

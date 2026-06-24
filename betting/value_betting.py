@@ -2,7 +2,7 @@ class ValueBettingEngine:
     def __init__(self, min_edge=0.025):
         self.min_edge = min_edge
         
-    def evaluate(self, model_probs, market_odds):
+    def evaluate(self, model_probs, market_odds, hawkes_veto=False):
         """
         model_probs: dict {'Home': p, 'Draw': p, 'Away': p}
         market_odds: dict {'Home': odds, 'Draw': odds, 'Away': odds}
@@ -27,7 +27,7 @@ class ValueBettingEngine:
         best_outcome = max(edges, key=edges.get)
         best_edge = edges[best_outcome]
         
-        if best_edge < self.min_edge:
+        if hawkes_veto or best_edge < self.min_edge:
             return "NO BET", best_outcome, best_edge, novig_probs[best_outcome], model_probs[best_outcome]
             
         return "BET", best_outcome, best_edge, novig_probs[best_outcome], model_probs[best_outcome]

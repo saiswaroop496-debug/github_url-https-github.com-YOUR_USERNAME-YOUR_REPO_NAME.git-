@@ -1,10 +1,10 @@
 class KellyPortfolio:
-    def __init__(self, max_stake_fraction=0.20, max_stake_units=50.0):
+    def __init__(self, max_stake_fraction=0.05, max_stake_units=50.0):
         self.max_stake_fraction = max_stake_fraction
         self.max_stake_units = max_stake_units
         self.open_bets = set() # Track teams with open bets
         
-    def size_bet(self, model_prob, decimal_odds, bankroll, home_team, away_team):
+    def size_bet(self, model_prob, decimal_odds, bankroll, home_team, away_team, ece=0.0):
         b = decimal_odds - 1.0
         q = 1.0 - model_prob
         
@@ -13,6 +13,9 @@ class KellyPortfolio:
         
         f_star = (b * model_prob - q) / b
         f_quarter = f_star / 4.0
+        
+        # ECE Scaling penalty
+        f_quarter *= max(0.0, 1.0 - ece)
         
         # Hard limits
         stake = min(f_quarter * bankroll, self.max_stake_fraction * bankroll, self.max_stake_units)

@@ -38,31 +38,37 @@ class BetaCalibration:
         row_sums = calibrated.sum(axis=1, keepdims=True)
         return calibrated / row_sums
 
+def expected_calibration_error(y_true, y_prob, n_bins=10):
+    bins = np.linspace(0, 1, n_bins + 1)
+    ece = 0
+    for i in range(n_bins):
+        mask = (y_prob >= bins[i]) & (y_prob < bins[i+1])
+        if mask.sum() > 0:
+            acc = y_true[mask].mean()
+            conf = y_prob[mask].mean()
+            ece += mask.sum() / len(y_true) * abs(acc - conf)
+    return ece
+
 class MetaLearner:
     def __init__(self):
-        self.meta_model = LogisticRegression(C=0.3, solver='lbfgs', multi_class='multinomial', max_iter=1000)
+        self.meta_model = LogisticRegression(C=0.5, class_weight='balanced', solver='lbfgs', max_iter=1000)
         self.calibrator = BetaCalibration()
         
     def fit_predict(self, X, y):
-        # 3-Way Chronological Split
         n = len(X)
-        train_end = int(0.70 * n)
-        val_end = int(0.85 * n)
+        cal_start = int(n * 0.75)   # last 25% chronologically
         
-        X_train, y_train = X[:train_end], y[:train_end]
-        X_val, y_val = X[train_end:val_end], y[train_end:val_end]
-        X_calib, y_calib = X[val_end:], y[val_end:]
+        X_train, y_train = X[:cal_start], y[:cal_start]
+        X_calib, y_calib = X[cal_start:], y[cal_start:]
         
         # Train
         self.meta_model.fit(X_train, y_train)
-        
-        # Evaluate on Val (for reporting, omitted logic to tune C for simplicity here as C=0.3 is hardcoded)
         
         # Predict on Calib and fit calibrator
         calib_probs = self.meta_model.predict_proba(X_calib)
         self.calibrator.fit(calib_probs, y_calib)
         
-        # Return full calibrated predictions for the entire set (or just what's needed)
+        # Return full calibrated predictions for the entire set
         raw_probs = self.meta_model.predict_proba(X)
         final_probs = self.calibrator.predict_proba(raw_probs)
         
@@ -71,3 +77,34 @@ class MetaLearner:
         final_probs = final_probs / final_probs.sum(axis=1, keepdims=True)
         
         return final_probs
+
+def predict_with_draw_threshold(model, X: np.ndarray, classes, draw_thresh: float = 0.28):
+    """
+    Override argmax for Draw class: if Draw prob >= draw_thresh, predict Draw.
+    This unlocks draws that the meta-learner suppresses at the decision boundary.
+    """
+    proba = model.predict_proba(X)
+    draw_idx = list(classes).index('Draw')
+    preds = []
+    for p in proba:
+        if p[draw_idx] >= draw_thresh:
+            preds.append('Draw')
+        else:
+            preds.append(classes[np.argmax(p)])
+    return np.array(preds), proba
+
+def build_ordinal_meta_learner(X_oof: np.ndarray, y_oof_encoded: np.ndarray):
+    """
+    Ordered logit respects Away Win < Draw < Home Win natural ordering.
+    Use as challenger against the balanced LR in champion/challenger gate.
+    
+    y_oof_encoded must be integer: 0=Away Win, 1=Draw, 2=Home Win
+    """
+    try:
+        from statsmodels.miscmodels.ordinal_model import OrderedModel
+        ord_model = OrderedModel(y_oof_encoded, X_oof, distr='logit')
+        result = ord_model.fit(method='bfgs', disp=False)
+        return result
+    except ImportError:
+        print("statsmodels not installed. Run: pip install statsmodels")
+        return None
