@@ -469,7 +469,7 @@ deployment_metrics = {
 
 deploy(
     metrics=deployment_metrics,
-    github_url="https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git",
+    github_url="https://github.com/saiswaroop496-debug/github_url-https-github.com-YOUR_USERNAME-YOUR_REPO_NAME.git-",
     api_key=os.getenv("RAPIDAPI_KEY", ""),   # reads from your .env
     version_tag="V6.0",
 )
