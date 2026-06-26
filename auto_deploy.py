@@ -113,7 +113,7 @@ def set_remote(github_url: str):
         print(f"  [OK] Remote set to {github_url}")
 
 
-def commit_and_push(version_tag: str = "V6.0"):
+def commit_and_push(github_url: str, version_tag: str = "V6.0"):
     """Stage all changes, commit with auto-timestamp, push to main."""
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     commit_msg = f"[auto] {version_tag} model update — {timestamp}"
@@ -127,7 +127,15 @@ def commit_and_push(version_tag: str = "V6.0"):
         return False
 
     run(f'git commit -m "{commit_msg}"')
-    run("git push -u origin main")
+    
+    pat = os.environ.get("GITHUB_PAT")
+    if pat:
+        # Strip https:// and inject token
+        push_url = github_url.replace("https://", f"https://{pat}@")
+        run(f"git push -u {push_url} main")
+    else:
+        run("git push -u origin main")
+        
     print(f"  [DEPLOY] Pushed to GitHub: {commit_msg}")
     return True
 
@@ -169,7 +177,7 @@ def deploy(
         save_model_metadata(metrics, repo_dir)
         set_remote(github_url)
 
-        pushed = commit_and_push(version_tag)
+        pushed = commit_and_push(github_url, version_tag)
 
         if pushed:
             print("\n  [OK] DEPLOYMENT COMPLETE")
