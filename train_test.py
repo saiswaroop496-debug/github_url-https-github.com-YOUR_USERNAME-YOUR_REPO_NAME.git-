@@ -451,3 +451,25 @@ elapsed = time.time() - t_start
 print(f"\n{'='*70}")
 print(f"  COMPLETED IN {elapsed:.1f}s")
 print(f"{'='*70}")
+
+# ── AUTO-DEPLOY (add at bottom of train_test.py) ─────────────────────────────
+from auto_deploy import deploy
+import os
+
+# Populate this from your actual walk-forward output
+deployment_metrics = {
+    "accuracy":    np.mean(accs),
+    "log_loss":    np.mean(lls),
+    "brier":       np.mean(briers),
+    "ece":         np.mean(eces),
+    "fold_std":    np.std(accs),
+    "draw_recall": float(cm[1][1]) / float(cm[1].sum()) if cm[1].sum() > 0 else 0.0,
+    "n_matches":   len(df),
+}
+
+deploy(
+    metrics=deployment_metrics,
+    github_url="https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git",
+    api_key=os.getenv("RAPIDAPI_KEY", ""),   # reads from your .env
+    version_tag="V6.0",
+)

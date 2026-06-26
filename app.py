@@ -122,6 +122,20 @@ tier = st.sidebar.radio(
 is_pro = "Pro" in tier or "API" in tier
 is_api = "API" in tier
 
+# In app.py — show live model stats from last auto-deploy
+import json
+from pathlib import Path
+
+card_path = Path("model_card.json")
+if card_path.exists():
+    card = json.loads(card_path.read_text())
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🤖 Live Model Stats")
+    st.sidebar.metric("Accuracy", f"{card['accuracy']:.1%}")
+    st.sidebar.metric("Log-Loss", f"{card['log_loss']:.4f}")
+    st.sidebar.metric("Draw Recall Fixed", "✅" if card['draw_recall'] > 0 else "❌")
+    st.sidebar.caption(f"Deployed: {card['deployed_at'][:16]}")
+
 st.sidebar.markdown("### Match Settings")
 
 team_display = {

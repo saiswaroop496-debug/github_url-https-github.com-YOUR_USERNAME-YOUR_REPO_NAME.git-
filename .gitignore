@@ -10,3 +10,6 @@ catboost_info/
 .glicko_cache/
 *.csv
 *.pkl
+*.pyc
+*.log
+.DS_Store

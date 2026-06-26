@@ -38,7 +38,17 @@ class DixonColesModel:
         tau[mask_11] = 1.0 - rho
 
         return tau        
+    def _interpolate_gamma_vec(self, neutral_gamma, full_gamma, venue_factor):
+        v = np.clip(venue_factor, 0.0, 1.0)
+        g_n = max(neutral_gamma, 1e-6)
+        g_f = max(full_gamma, 1e-6)
+        if abs(g_n - g_f) < 1e-8:
+            return np.full_like(v, g_n)
+        gamma_eff = g_n * (g_f / g_n) ** v
+        return np.clip(gamma_eff, 0.5, 2.5)
+
     def _interpolate_gamma(self, neutral_gamma, full_gamma, venue_factor):
+        # Kept for backward compatibility with predict_proba
         v = float(np.clip(venue_factor, 0.0, 1.0))
         g_n = max(neutral_gamma, 1e-6)
         g_f = max(full_gamma, 1e-6)
@@ -47,7 +57,22 @@ class DixonColesModel:
         gamma_eff = g_n * (g_f / g_n) ** v
         return float(np.clip(gamma_eff, 0.5, 2.5))
         
-    def _log_likelihood(self, params_array, df, max_date):
+    def _tau_vec(self, x, y, lambda_, mu, rho):
+        tau = np.ones_like(x, dtype=float)
+        
+        m_00 = (x == 0) & (y == 0)
+        m_01 = (x == 0) & (y == 1)
+        m_10 = (x == 1) & (y == 0)
+        m_11 = (x == 1) & (y == 1)
+        
+        tau[m_00] = 1.0 - lambda_[m_00] * mu[m_00] * rho
+        tau[m_01] = 1.0 + lambda_[m_01] * rho
+        tau[m_10] = 1.0 + mu[m_10] * rho
+        tau[m_11] = 1.0 - rho
+        
+        return tau
+
+    def _log_likelihood(self, params_array):
         n_teams = len(self.teams)
         attack = params_array[:n_teams]
         defense = params_array[n_teams:2*n_teams]
@@ -55,34 +80,52 @@ class DixonColesModel:
         neutral_gamma = params_array[2*n_teams + 1]
         rho = params_array[2*n_teams + 2]
         
-        ll = 0.0
-        for _, row in df.iterrows():
-            i = self.team_to_idx[row['home_team']]
-            j = self.team_to_idx[row['away_team']]
-            x = row['home_goals']
-            y = row['away_goals']
+        gamma_eff = self._interpolate_gamma_vec(neutral_gamma, home_gamma, self._venue_factor)
+        
+        lambda_ = np.exp(attack[self._i] + defense[self._j] + gamma_eff)
+        mu = np.exp(attack[self._j] + defense[self._i])
+        
+        tau_val = self._tau_vec(self._x, self._y, lambda_, mu, rho)
+        
+        if np.any(tau_val <= 0):
+            return 1e9 # Penalty
             
-            venue_factor = row.get('crowd_factor', 0.0)
-            gamma_eff = self._interpolate_gamma(neutral_gamma, home_gamma, venue_factor)
-            
-            lambda_ = exp(attack[i] + defense[j] + gamma_eff)
-            mu = exp(attack[j] + defense[i])
-            
-            delta_days = (max_date - row['date']).days
-            w_t = exp(-0.0065 * delta_days)
-            
-            tau_val = self._tau(x, y, lambda_, mu, rho)
-            if tau_val <= 0:
-                return 1e9 # Penalty
-                
-            ll += w_t * row.get('match_weight', 1.0) * (log(tau_val) + poisson.logpmf(x, lambda_) + poisson.logpmf(y, mu))
-            
-        return -ll # Minimize negative log-likelihood
+        log_p_x = self._x * np.log(lambda_) - lambda_ - self._log_fact_x
+        log_p_y = self._y * np.log(mu) - mu - self._log_fact_y
+        
+        ll = self._w_t * self._match_weight * (np.log(tau_val) + log_p_x + log_p_y)
+        
+        return -np.sum(ll)
         
     def fit(self, df):
+        import scipy.special
         self.teams = list(set(df['home_team'].unique()) | set(df['away_team'].unique()))
         self.team_to_idx = {t: i for i, t in enumerate(self.teams)}
         n_teams = len(self.teams)
+        
+        # Precompute arrays for fast vectorized likelihood
+        self._i = np.array([self.team_to_idx[t] for t in df['home_team']])
+        self._j = np.array([self.team_to_idx[t] for t in df['away_team']])
+        self._x = df['home_goals'].values.astype(float)
+        self._y = df['away_goals'].values.astype(float)
+        
+        # Handle missing columns gracefully
+        if 'crowd_factor' in df.columns:
+            self._venue_factor = df['crowd_factor'].values
+        else:
+            self._venue_factor = np.zeros(len(df))
+            
+        if 'match_weight' in df.columns:
+            self._match_weight = df['match_weight'].values
+        else:
+            self._match_weight = np.ones(len(df))
+            
+        max_date = df['date'].max()
+        delta_days = (max_date - df['date']).dt.days.values
+        self._w_t = np.exp(-0.0065 * delta_days)
+        
+        self._log_fact_x = scipy.special.gammaln(self._x + 1)
+        self._log_fact_y = scipy.special.gammaln(self._y + 1)
         
         # Initial guess
         x0 = np.zeros(2*n_teams + 3)
@@ -93,7 +136,7 @@ class DixonColesModel:
         # Bounds: rho in [-0.35, 0.35]
         bounds = [(None, None)] * (2*n_teams + 2) + [(-0.35, 0.35)]
         
-        res = minimize(self._log_likelihood, x0, args=(df, df['date'].max()), method='L-BFGS-B', bounds=bounds)
+        res = minimize(self._log_likelihood, x0, method='L-BFGS-B', bounds=bounds)
         
         opt_params = res.x
         self.attack = {t: opt_params[i] for i, t in enumerate(self.teams)}
