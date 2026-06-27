@@ -78,6 +78,21 @@ class DataScraper:
             df['crowd_factor'] = 0.0 # Simplify for real data
             
             # Split into dc_df and form_df
+            import os
+            if os.path.exists("data/wc2026_live.csv"):
+                try:
+                    live_df = pd.read_csv("data/wc2026_live.csv")
+                    live_df['date'] = pd.to_datetime(live_df['date'])
+                    
+                    # Merge live data into the main df
+                    # Live df contains: date, home_team, away_team, home_score, away_score, tournament, etc.
+                    # We just concat them and sort by date
+                    df = pd.concat([df, live_df], ignore_index=True)
+                    df = df.sort_values('date').reset_index(drop=True)
+                    print(f"[DATA] Merged {len(live_df)} live matches from wc2026_live.csv")
+                except Exception as e:
+                    print(f"Warning: failed to merge live data: {e}")
+
             dc_df = df.copy()
             form_df = df[df['date'].dt.year >= 2018].copy()
             

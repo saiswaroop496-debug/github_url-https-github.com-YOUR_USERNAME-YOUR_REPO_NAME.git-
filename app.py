@@ -190,6 +190,25 @@ market_odds_draw = st.sidebar.number_input("Draw Odds", value=3.4)
 market_odds_away = st.sidebar.number_input(f"{team2_sel.split(' ')[1]} Win Odds", value=3.8)
 bankroll = st.sidebar.number_input("Bankroll", value=1000.0)
 
+import json
+from pathlib import Path
+
+loop_state_path = Path(".loop_state.json")
+if loop_state_path.exists():
+    state = json.loads(loop_state_path.read_text())
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔄 Live Loop Status")
+    st.sidebar.metric("Total WC Matches Processed",
+                      state.get("total_matches_processed", 0))
+    st.sidebar.metric("Matches Until Next Base Retrain",
+                      max(0, 3 - state.get("new_matches_since_tier2", 0)))
+    st.sidebar.metric("Matches Until Full Deploy",
+                      max(0, 10 - state.get("new_matches_since_tier3", 0)))
+    last_sync = state.get("last_sync_utc", "Never")
+    if last_sync != "Never":
+        last_sync = last_sync[:16].replace("T", " ") + " UTC"
+    st.sidebar.caption(f"Last live sync: {last_sync}")
+
 # Strip emojis for backend
 team1 = [k for k, v in team_display.items() if v == team1_sel][0]
 team2 = [k for k, v in team_display.items() if v == team2_sel][0]

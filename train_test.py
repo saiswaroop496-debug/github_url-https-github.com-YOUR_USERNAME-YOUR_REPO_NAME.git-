@@ -455,6 +455,7 @@ print(f"{'='*70}")
 # ── AUTO-DEPLOY (add at bottom of train_test.py) ─────────────────────────────
 from auto_deploy import deploy
 import os
+import sys
 
 # Populate this from your actual walk-forward output
 deployment_metrics = {
@@ -467,9 +468,12 @@ deployment_metrics = {
     "n_matches":   len(df),
 }
 
-deploy(
-    metrics=deployment_metrics,
-    github_url="https://github.com/saiswaroop496-debug/github_url-https-github.com-YOUR_USERNAME-YOUR_REPO_NAME.git-",
-    api_key=os.getenv("RAPIDAPI_KEY", ""),   # reads from your .env
-    version_tag="V6.0",
-)
+if "--auto-deploy=false" not in sys.argv:
+    deploy(
+        metrics=deployment_metrics,
+        github_url="https://github.com/saiswaroop496-debug/github_url-https-github.com-YOUR_USERNAME-YOUR_REPO_NAME.git-",
+        api_key=os.getenv("RAPIDAPI_KEY", ""),   # reads from your .env
+        version_tag="V6.0",
+    )
+else:
+    print("Skipping deployment due to --auto-deploy=false flag.")
