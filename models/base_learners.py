@@ -25,8 +25,6 @@ class PurgedTimeSeriesSplit:
                 
             yield indices[:train_end], indices[test_start:test_end]
 
-from skfolio.model_selection import CombinatorialPurgedCV
-
 class BaseLearnerStack:
     def __init__(self):
         self.cat = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10, iterations=250, learning_rate=0.04, subsample=0.8, colsample_bylevel=0.7, random_seed=42, verbose=0)
@@ -34,7 +32,7 @@ class BaseLearnerStack:
         self.ridge = Ridge(alpha=15.0)
         
     def generate_oof(self, X, y_home, y_away):
-        cv = CombinatorialPurgedCV(n_splits=6, n_test_splits=2, purged_size=5, embargo_size=3)
+        cv = PurgedTimeSeriesSplit(n_splits=5, embargo_gap=4)
         
         oof_home = np.zeros(len(X))
         oof_away = np.zeros(len(X))
