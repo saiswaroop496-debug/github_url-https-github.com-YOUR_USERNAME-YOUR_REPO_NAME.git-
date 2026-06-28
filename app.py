@@ -48,36 +48,28 @@ def instantiate_models():
 
 @st.cache_resource
 def load_and_train_pipeline():
-    # Fetch Real Data — call scraper directly to avoid stale st.cache_data
-    from data.scraper import DataScraper
-    scraper = DataScraper()
-    res = scraper.fetch_fixtures()
-    print("DEBUG: type(res)=", type(res))
-    print("DEBUG: len(res)=", len(res) if hasattr(res, '__len__') else 'N/A')
-    dc_df, df = res
-    
-    # Feature Engineering
-    from features.rolling_features import compute_rolling_features
-    df = compute_rolling_features(df)
-    
-    from features.glicko_ratings import Glicko2RatingSystem
-    glicko = Glicko2RatingSystem()
-    df = glicko.compute_ratings(df)
-    
-    # Regime filter
-    if 'home_glicko' in df.columns and 'away_glicko' in df.columns:
-        regime_mask = (df['home_glicko'] - df['away_glicko']).abs() < 400
-        df = df[regime_mask].reset_index(drop=True)
-    
+    """Lightweight startup — real inference happens via run_inference()."""
     models = instantiate_models()
     
-    # Fit Dixon-Coles on 2015+ dc_df
-    models['dc'].fit(dc_df)
-    
-    # Run LinUCB pre-training sweep on the historical dataset
-    models['linucb'].backtest_sweep(df)
-    
-    return models, df, glicko
+    # Load data for display purposes only (team list, etc.)
+    try:
+        from data.scraper import DataScraper
+        scraper = DataScraper()
+        res = scraper.fetch_fixtures()
+        dc_df, df = res
+        
+        from features.rolling_features import compute_rolling_features
+        df = compute_rolling_features(df)
+        
+        from features.glicko_ratings import Glicko2RatingSystem
+        glicko = Glicko2RatingSystem()
+        df = glicko.compute_ratings(df)
+        
+        return models, df, glicko
+    except Exception as e:
+        warnings.warn(f"Pipeline load failed (non-fatal): {e}")
+        import pandas as pd
+        return models, pd.DataFrame(), None
 
 class WalkForwardValidator:
     def __init__(self, n_splits=5, embargo_gap=4):
@@ -101,15 +93,20 @@ class WalkForwardValidator:
             'psi': 0.12 
         }
 
-def run_health_check(feature_df, meta_learner, dc_model):
+def run_health_check(feature_df, models):
+    """Lightweight health check — no model access needed."""
     issues = []
     
-    FEATURE_COLS = [c for c in feature_df.columns if c.endswith('_xg') or c.endswith('_rolling_3')]
-    if len(FEATURE_COLS) > 0 and feature_df[FEATURE_COLS].isnull().any().any():
-        issues.append("NaN values in feature matrix")
+    if feature_df is not None and len(feature_df) > 0:
+        FEATURE_COLS = [c for c in feature_df.columns if c.endswith('_xg') or c.endswith('_rolling_3')]
+        if len(FEATURE_COLS) > 0 and feature_df[FEATURE_COLS].isnull().any().any():
+            issues.append("NaN values in feature matrix")
     
-    # We mock the predict_proba bounds check since meta_learner isn't strictly fitted here in mock mode
-    # But this meets the architectural spec for startup validation
+    # Check if model artifacts exist
+    from pathlib import Path
+    if not Path("model_versions/latest/manifest.json").exists():
+        issues.append("Model artifacts missing")
+    
     if issues:
         st.sidebar.warning("⚠️ Health check: " + " | ".join(issues))
     else:
@@ -232,7 +229,7 @@ try:
     models, df, glicko = load_and_train_pipeline()
     
     # Validation check on startup
-    run_health_check(df, models['meta'], models['dc'])
+    run_health_check(df, models)
 
     def safe_predict(home_team: str, away_team: str,
                       venue_factor: float = 0.3,
@@ -492,22 +489,52 @@ try:
                     st.write(f"If draw: **{team1}** {shootout['team1_win_prob']*100:.1f}% vs **{team2}** {shootout['team2_win_prob']*100:.1f}%")
 
         def mock_predict_fn(t1, t2):
-            return models['dc'].predict_proba(t1, t2, venue_factor=0.0)
+            r = run_inference(t1, t2, venue_factor=0.0)
+            if r and 'error' not in r:
+                return np.array([r['home_win_prob'], r['draw_prob'], r['away_win_prob']])
+            return np.array([0.33, 0.34, 0.33])
 
-        render_monte_carlo_simulator(predict_fn=mock_predict_fn, teams=teams)
+        try:
+            render_monte_carlo_simulator(predict_fn=mock_predict_fn, teams=teams)
+        except Exception:
+            pass  # Monte Carlo simulator is optional
 
         with st.expander("Glicko-2 Ratings"):
-            st.write("Extracting the latest chronologically robust snapshot...")
-            st.write(f"**{team1}:** Rating ~ 1850 | RD ~ 45 | Signal ~ 1700")
-            st.write(f"**{team2}:** Rating ~ 1920 | RD ~ 40 | Signal ~ 1920")
+            st.write("Live Glicko-2 ratings from team_states.json:")
+            try:
+                ts = json.load(open("model_versions/latest/team_states.json", encoding="utf-8"))
+                t1_s = ts.get(team1, {})
+                t2_s = ts.get(team2, {})
+                st.write(f"**{team1}:** Rating = {t1_s.get('glicko', 'N/A')} | RD = {t1_s.get('rd', 'N/A')}")
+                st.write(f"**{team2}:** Rating = {t2_s.get('glicko', 'N/A')} | RD = {t2_s.get('rd', 'N/A')}")
+            except Exception:
+                st.write("Could not load team states.")
             
         with st.expander("Dixon-Coles Scoreline Grid"):
-            st.write("Heatmap generation using Joint MLE params...")
-            grid = np.random.uniform(0.01, 0.15, (6, 6))
-            st.dataframe(pd.DataFrame(grid, columns=[f"A_{i}" for i in range(6)], index=[f"H_{i}" for i in range(6)]))
-            
-        with st.expander("Walk-Forward Detail"):
-            st.table(pd.DataFrame(metrics['folds']).set_index('fold'))
+            st.write("Score probability matrix from trained DC model:")
+            try:
+                from inference import _dc_params
+                if _dc_params:
+                    from models.poisson_dixon_coles import score_probability_matrix
+                    from math import exp as _exp
+                    _h_att = _dc_params['attack'].get(team1, 0)
+                    _a_att = _dc_params['attack'].get(team2, 0)
+                    _h_def = _dc_params['defense'].get(team1, 0)
+                    _a_def = _dc_params['defense'].get(team2, 0)
+                    _lh = _exp(_h_att - _a_def + _dc_params.get('home_adv', 0) * venue_factor)
+                    _la = _exp(_a_att - _h_def)
+                    _lh = min(max(_lh, 0.01), 15.0)
+                    _la = min(max(_la, 0.01), 15.0)
+                    grid = score_probability_matrix(_lh, _la, _dc_params.get('rho', 0))
+                    st.dataframe(pd.DataFrame(
+                        grid[:6, :6],
+                        columns=[f"Away {i}" for i in range(6)],
+                        index=[f"Home {i}" for i in range(6)]
+                    ).style.format("{:.3f}"))
+                else:
+                    st.write("DC params not available.")
+            except Exception as ex:
+                st.write(f"Could not render grid: {ex}")
             
         with st.expander("Execution Log"):
             st.code(f"""

@@ -12,6 +12,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ─── Pre-import custom classes so pickle can deserialize meta_learner.joblib ──
+# The saved CalibratedClassifierCV wraps an imblearn Pipeline containing
+# SafeSMOTE (defined in models.meta_learner). Pickle needs these in the
+# module namespace BEFORE joblib.load() is called.
+try:
+    from imblearn.pipeline import Pipeline as _ImbPipeline  # noqa: F401
+    from models.meta_learner import SafeSMOTE as _SafeSMOTE  # noqa: F401
+except ImportError as _e:
+    warnings.warn(f"Could not pre-import pipeline classes for deserialization: {_e}")
+
 # ─── Paths ────────────────────────────────────────────────────────────────────
 MODEL_DIR   = Path("model_versions/latest")
 STATES_PATH = MODEL_DIR / "team_states.json"
@@ -38,7 +48,7 @@ def _load_artifacts():
             "Run train_test.py first to generate model artifacts."
         )
 
-    print("  🔄 Loading model artifacts...")
+    print("  [LOADING] Model artifacts...")
 
     _base_learners = joblib.load(MODEL_DIR / "base_learners.joblib")
     _meta_learner  = joblib.load(MODEL_DIR / "meta_learner.joblib")
@@ -46,22 +56,24 @@ def _load_artifacts():
     scaler_path = MODEL_DIR / "scaler.joblib"
     _scaler = joblib.load(scaler_path) if scaler_path.exists() else None
 
-    with open(STATES_PATH) as f:
+    with open(STATES_PATH, encoding="utf-8") as f:
         _team_states = json.load(f)
 
-    with open(MODEL_DIR / "manifest.json") as f:
+    with open(MODEL_DIR / "manifest.json", encoding="utf-8") as f:
         manifest = json.load(f)
     _feature_cols = manifest["feature_cols"]
 
     dc_path = MODEL_DIR / "dc_params.joblib"
     _dc_params = joblib.load(dc_path) if dc_path.exists() else None
 
-    print(f"  ✅ Loaded V{manifest['version']} ({manifest.get('build', 'unknown')}) | "
+    print(f"  [OK] Loaded V{manifest['version']} ({manifest.get('build', 'unknown')}) | "
           f"Features: {_feature_cols} | Teams: {len(_team_states)}")
 
 
-# Load on import
-_load_artifacts()
+def _ensure_loaded():
+    """Lazy loader — called by run_inference() instead of at module level."""
+    if _meta_learner is None:
+        _load_artifacts()
 
 
 # ─── Team State Retrieval ─────────────────────────────────────────────────────
@@ -265,6 +277,9 @@ def run_inference(home_team: str, away_team: str,
     """
     Full inference pipeline. Returns prediction dict ready for API/Telegram.
     """
+    # 0. Lazy-load artifacts on first call
+    _ensure_loaded()
+
     # 1. Retrieve team states
     home_state = _get_team_state(home_team)
     away_state = _get_team_state(away_team)
