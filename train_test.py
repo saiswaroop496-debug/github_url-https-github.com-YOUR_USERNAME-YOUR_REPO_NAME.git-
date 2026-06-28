@@ -469,11 +469,6 @@ def export_model(model, scaler, meta_learner, feature_cols: list,
     build_dir  = MODEL_VERSIONS_DIR / build_name
     build_dir.mkdir()
 
-    # Save artifacts (we need a mock scaler if not using one, or just save the model objects)
-    # The current train_test.py doesn't define scaler explicitly as a single object,
-    # so we'll save base learners (cat_h, xgb_h, ridge_h, cat_a, xgb_a, ridge_a) as a dict.
-    
-    # We will just pass the dict of base learners for now.
     joblib.dump(model,        build_dir / "base_learners.joblib")
     if scaler is not None:
         joblib.dump(scaler,       build_dir / "scaler.joblib")
@@ -500,28 +495,61 @@ def export_model(model, scaler, meta_learner, feature_cols: list,
     with open(build_dir / "manifest.json", 'w') as f:
         json.dump(manifest, f, indent=2)
 
-    # Symlink latest promoted model
-    latest_link = MODEL_VERSIONS_DIR / "latest"
-    if manifest["promoted"]:
-        if latest_link.exists():
-            latest_link.unlink()
-        
-        # for windows, use junction or just write a small text file instead of symlink to avoid admin privileges
-        with open(latest_link.with_suffix('.txt'), 'w') as f:
-            f.write(build_dir.name)
-            
-        print(f"  ? Promoted ? model_versions/latest ? {build_name}")
-    else:
-        print(f"  ??  Model archived but not promoted (gate failed): {build_name}")
+    return build_dir, manifest["promoted"]
 
-    return build_dir
+import json
+
+def export_team_states(df: pd.DataFrame, glicko_ratings: dict,
+                       rolling_df: pd.DataFrame, output_path="model_versions/latest/team_states.json"):
+    """
+    Export the latest feature state for every team as a static JSON.
+    Used by inference.py for live predictions without re-running the pipeline.
+    """
+    states = {}
+    latest = rolling_df.sort_values('date').groupby('team').last().reset_index()
+
+    for _, row in latest.iterrows():
+        team = row['team']
+        g = glicko_ratings.get(team, {})
+        states[team] = {
+            "glicko":             round(float(g.get('rating', 1500)), 2),
+            "rd":                 round(float(g.get('rd', 200)), 2),
+            "xg_rolling_3":       round(float(row.get('xg_rolling_3', 1.2)), 4),
+            "neutral_venue_form": round(float(row.get('neutral_venue_form', 1.2)), 4),
+            "last_match_date":    str(row.get('date', '')),
+        }
+
+    with open(output_path, 'w') as f:
+        json.dump(states, f, indent=2)
+    print(f"  ✅ Team states exported: {output_path} ({len(states)} teams)")
 
 # Export the trained model and meta learner
 try:
-    base_learners = {
-        'cat_h': cat_h, 'xgb_h': xgb_h, 'ridge_h': ridge_h,
-        'cat_a': cat_a, 'xgb_a': xgb_a, 'ridge_a': ridge_a
+    base_learners = [cat_h, cat_a, xgb_h, xgb_a, ridge_h, ridge_a]
+    build_dir, is_promoted = export_model(base_learners, None, meta_lr, FEATURE_COLS, deployment_metrics)
+    
+    # Save dc_params to build dir
+    dc_params = {
+        "attack": dc_model.attack,
+        "defense": dc_model.defense,
+        "home_adv": dc_model.home_adv,
+        "rho": dc_model.rho
     }
-    export_model(base_learners, None, meta_lr, FEATURE_COLS, deployment_metrics)
+    joblib.dump(dc_params, build_dir / "dc_params.joblib")
+    
+    # Symlink latest promoted model
+    latest_dir = MODEL_VERSIONS_DIR / "latest"
+    if is_promoted:
+        import shutil
+        if latest_dir.exists():
+            shutil.rmtree(latest_dir)
+        shutil.copytree(build_dir, latest_dir)
+        print(f"  ✅ Promoted ➔ model_versions/latest ➔ {build_dir.name}")
+        
+        export_team_states(df, glicko.ratings, form_df, output_path=latest_dir / "team_states.json")
+    else:
+        print(f"  ❌  Model archived but not promoted (gate failed): {build_dir.name}")
 except Exception as e:
+    import traceback
+    traceback.print_exc()
     print(f"Model export failed: {e}")

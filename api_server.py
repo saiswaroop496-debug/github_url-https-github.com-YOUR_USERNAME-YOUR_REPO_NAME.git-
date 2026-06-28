@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 from collections import defaultdict
 from dotenv import load_dotenv
+from inference import run_inference
 
 load_dotenv()
 
@@ -87,9 +88,7 @@ def health():
 @app.post("/predict", response_model=PredictResponse)
 def predict(req: PredictRequest, api_key: str = Depends(validate_api_key)):
     try:
-        # Import your pipeline — adjust path as needed
-        from app import run_prediction_pipeline
-        result = run_prediction_pipeline(
+        result = run_inference(
             home_team=req.home_team,
             away_team=req.away_team,
             venue_factor=req.venue_factor,
@@ -99,49 +98,28 @@ def predict(req: PredictRequest, api_key: str = Depends(validate_api_key)):
             away_odds=req.away_decimal_odds
         )
 
-        # Compute no-vig edge if odds provided
-        no_vig_edge = None
-        best_bet = None
-        kelly_fraction = None
-
-        if all([req.home_decimal_odds, req.draw_decimal_odds, req.away_decimal_odds]):
-            raw = [1/req.home_decimal_odds, 1/req.draw_decimal_odds,
-                   1/req.away_decimal_odds]
-            overround = sum(raw)
-            novig = [r / overround for r in raw]
-            edges = [result['home_win_prob'] - novig[0],
-                     result['draw_prob']     - novig[1],
-                     result['away_win_prob'] - novig[2]]
-            best_idx = int(np.argmax(edges))
-            best_bet_edge = edges[best_idx]
-            if best_bet_edge >= 0.025:
-                best_bet = ["Home Win", "Draw", "Away Win"][best_idx]
-                no_vig_edge = round(best_bet_edge, 4)
-                # Quarter Kelly
-                b = [req.home_decimal_odds, req.draw_decimal_odds,
-                     req.away_decimal_odds][best_idx] - 1
-                p = [result['home_win_prob'], result['draw_prob'],
-                     result['away_win_prob']][best_idx]
-                q = 1 - p
-                kelly_fraction = round(max(0, (b*p - q) / b) * 0.25, 4)
+        if result.get("regime_filtered"):
+            raise HTTPException(status_code=422,
+                                detail=result.get("message", "Regime filter active"))
 
         return PredictResponse(
-            home_team=req.home_team,
-            away_team=req.away_team,
-            home_win_prob=round(result['home_win_prob'], 4),
-            draw_prob=round(result['draw_prob'], 4),
-            away_win_prob=round(result['away_win_prob'], 4),
-            confidence=result.get('confidence', 'MODERATE'),
-            lower_bounds=result.get('lower_bounds', {}),
-            upper_bounds=result.get('upper_bounds', {}),
-            btts_yes=result.get('btts_yes'),
-            over_25=result.get('over_25'),
-            kelly_fraction=kelly_fraction,
-            no_vig_edge=no_vig_edge,
-            best_bet=best_bet,
-            model_version="6.2",
-            timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            home_team=result["home_team"],
+            away_team=result["away_team"],
+            home_win_prob=result["home_win_prob"],
+            draw_prob=result["draw_prob"],
+            away_win_prob=result["away_win_prob"],
+            confidence=result["confidence"],
+            lower_bounds={},   # add ACI bounds when available
+            upper_bounds={},
+            btts_yes=result.get("btts_yes"),
+            over_25=result.get("over_25"),
+            kelly_fraction=result.get("kelly_fraction"),
+            no_vig_edge=result.get("no_vig_edge"),
+            best_bet=result.get("best_bet"),
+            model_version=result["model_version"],
+            timestamp=result["timestamp"]
         )
-
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

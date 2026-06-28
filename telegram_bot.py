@@ -1,24 +1,24 @@
 # telegram_bot.py
-# Install: pip install python-telegram-bot apscheduler
-# Run: python telegram_bot.py
+# Install: uv pip install python-telegram-bot apscheduler
+# Run: uv run python telegram_bot.py
 
 import asyncio
 import os
-import json
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
 
+from inference import run_inference
+from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update
+
 load_dotenv()
 
 BOT_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
-CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "")  # e.g. "@yourchannelname" or "-100xxxx"
+CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "")
 
 if not BOT_TOKEN:
     print("TELEGRAM_BOT_TOKEN not set in .env")
-
-from telegram import Bot
-from telegram.constants import ParseMode
 
 try:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -33,116 +33,108 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 
-def format_prediction_message(match: dict) -> str:
-    """Format a prediction dict into a Telegram-ready message."""
-    home  = match.get('home_team', 'N/A')
-    away  = match.get('away_team', 'N/A')
-    ph    = match.get('home_win_prob', 0)
-    pd_   = match.get('draw_prob', 0)
-    pa    = match.get('away_win_prob', 0)
-    conf  = match.get('confidence', 'MODERATE')
-    edge  = match.get('no_vig_edge')
-    best  = match.get('best_bet')
-    kelly = match.get('kelly_fraction')
-    btts  = match.get('btts_yes')
-    o25   = match.get('over_25')
+def format_prediction_message(result: dict) -> str:
+    """Format inference result as Markdown V2 safe message."""
+    # Escape special chars for MarkdownV2
+    def esc(s): return str(s).replace('.', '\\.').replace('-', '\\-').replace('+', '\\+').replace('(', '\\(').replace(')', '\\)')
 
-    conf_emoji = {"HIGH CONFIDENCE": "??", "MODERATE CONFIDENCE": "??",
-                  "LOW CONFIDENCE": "??"}.get(conf, "?")
+    h  = result['home_team']
+    a  = result['away_team']
+    ph = result['home_win_prob']
+    pd = result['draw_prob']
+    pa = result['away_win_prob']
+    pick = result.get('final_pick', 'N/A')
+    conf = result.get('confidence', 'N/A')
+    edge = result.get('no_vig_edge')
+    bet  = result.get('best_bet')
+    kf   = result.get('kelly_fraction')
+    btts = result.get('btts_yes')
+    o25  = result.get('over_25')
 
-    msg = (
-        f"? *World Cup Signal* — {datetime.utcnow().strftime('%d %b %Y')}\n"
-        f"??????????????????\n"
-        f"?? *{home}* vs ?? *{away}*\n\n"
-        f"?? *1X2 Probabilities (No-Vig)*\n"
-        f"  Home Win: {ph:.1%}\n"
-        f"  Draw:     {pd_:.1%}\n"
-        f"  Away Win: {pa:.1%}\n\n"
-    )
+    conf_emoji = {"HIGH": "🟢", "MODERATE": "🟡", "LOW": "🔴"}.get(
+        conf.split()[0], "⚪")
+
+    lines = [
+        f"⚽ *World Cup Signal*",
+        f"🏠 *{h}* vs ✈️ *{a}*",
+        "",
+        "📊 *Probabilities \\(No\\-Vig\\)*",
+        f"  Home Win: `{esc(f'{ph:.1%}')}`",
+        f"  Draw:     `{esc(f'{pd:.1%}')}`",
+        f"  Away Win: `{esc(f'{pa:.1%}')}`",
+        "",
+        f"🎯 *Model Pick:* {pick}",
+        f"{conf_emoji} *Confidence:* {conf.split('—')[0].strip()}",
+    ]
 
     if btts is not None:
-        msg += f"? BTTS Yes: {btts:.1%} | Over 2.5: {o25:.1%}\n\n"
+        lines += ["", f"⚡ BTTS Yes: `{esc(f'{btts:.1%}')}` \\| Over 2\\.5: `{esc(f'{o25:.1%}')}`"]
 
-    msg += f"{conf_emoji} *Confidence:* {conf}\n"
-
-    if best and edge and kelly:
-        msg += (
-            f"\n?? *Best Bet: {best}*\n"
-            f"  Edge vs Market: +{edge:.1%}\n"
-            f"  Kelly Stake: {kelly:.1%} of bankroll\n"
-        )
+    if bet and bet != "NO BET" and edge and kf:
+        lines += [
+            "",
+            f"💰 *Best Bet: {bet}*",
+            f"  Edge: `{esc(f'+{edge:.1%}')}`",
+            f"  Kelly Stake: `{esc(f'{kf:.1%}')}` of bankroll",
+        ]
     else:
-        msg += "\n?? *No Value Bet* — edge below 2.5% threshold\n"
+        lines += ["", "🚫 *No Value Bet* — edge below 2\\.5% threshold"]
 
-    msg += f"\nModel: V6.2 | #FIFA #WorldCup2026"
-    return msg
+    lines.append(f"\n`V6\\.2 \\| \\#FIFA \\#WorldCup2026`")
+    return "\n".join(lines)
 
 
-async def send_prediction(match: dict):
-    """Send a single prediction to the Telegram channel."""
-    if not BOT_TOKEN:
-        logger.info("Bot token not set, skipping send: " + format_prediction_message(match))
-        return
-    bot = Bot(token=BOT_TOKEN)
-    message = format_prediction_message(match)
-    try:
-        await bot.send_message(
-            chat_id=CHANNEL_ID,
-            text=message,
-            parse_mode=ParseMode.MARKDOWN
+async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/predict <HomeTeam> <AwayTeam> command handler."""
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "Usage: /predict <HomeTeam> <AwayTeam>\nExample: /predict Brazil Germany"
         )
-        logger.info(f"Signal sent: {match.get('home_team')} vs {match.get('away_team')}")
+        return
+
+    home = " ".join(args[:-1]) if len(args) > 2 else args[0]
+    away = args[-1]
+
+    await update.message.reply_text(f"🔄 Running prediction for {home} vs {away}...")
+
+    try:
+        result = run_inference(home_team=home, away_team=away)
+        if result.get("regime_filtered"):
+            await update.message.reply_text(
+                f"⚠️ Regime filter active: Glicko gap too large. No prediction issued."
+            )
+            return
+        msg = format_prediction_message(result)
+        await update.message.reply_text(msg, parse_mode="MarkdownV2")
     except Exception as e:
-        logger.error(f"Failed to send Telegram message: {e}")
+        await update.message.reply_text(f"❌ Prediction failed: {str(e)}")
 
 
 async def send_daily_signals():
-    """
-    Fetch today's matches, run predictions, send signals.
-    Called by scheduler or manually.
-    """
-    try:
-        # For testing, we mock get_todays_fixtures
-        # from main import run_prediction_pipeline, get_todays_fixtures
-        # fixtures = get_todays_fixtures()
-        
-        fixtures = []
-        if not fixtures:
-            logger.info("No fixtures today.")
-            return
-
-        for fixture in fixtures:
-            # result = run_prediction_pipeline(
-            #     home_team=fixture['home_team'],
-            #     away_team=fixture['away_team'],
-            #     venue_factor=fixture.get('venue_factor', 0.3),
-            #     stage=fixture.get('stage', 'group')
-            # )
-            # result.update(fixture)
-            # await send_prediction(result)
-            await asyncio.sleep(2)   # rate limit: 2s between messages
-
-    except Exception as e:
-        logger.error(f"Daily signal job failed: {e}")
-
+    """Placeholder for scheduled signals"""
+    pass
 
 def run_bot_with_scheduler():
-    """Start async scheduler to send signals daily at 10:00 AM IST."""
-    if not SCHEDULER_AVAILABLE:
-        logger.warning("Running without scheduler. Call send_daily_signals() manually.")
-        asyncio.run(send_daily_signals())
+    """Start bot with command handler + daily scheduler."""
+    if not BOT_TOKEN:
+        logger.error("No BOT_TOKEN. Cannot start telegram bot.")
         return
+        
+    app_bot = Application.builder().token(BOT_TOKEN).build()
+    app_bot.add_handler(CommandHandler("predict", predict_command))
+    app_bot.add_handler(CommandHandler("start", lambda u, c: u.message.reply_text(
+        "V6.2 WorldCup Quant Bot active.\nCommands:\n/predict <Home> <Away>"
+    )))
 
-    scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
-    scheduler.add_job(send_daily_signals, 'cron', hour=10, minute=0)
-    scheduler.start()
-    logger.info("Telegram bot started. Signals will fire at 10:00 AM IST daily.")
+    if SCHEDULER_AVAILABLE:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
+        scheduler.add_job(send_daily_signals, 'cron', hour=10, minute=0)
+        scheduler.start()
 
-    try:
-        asyncio.get_event_loop().run_forever()
-    except (KeyboardInterrupt, SystemExit):
-        scheduler.shutdown()
-
+    print("✅ Telegram bot running. Send /predict Brazil Germany to test.")
+    app_bot.run_polling()
 
 if __name__ == "__main__":
     run_bot_with_scheduler()

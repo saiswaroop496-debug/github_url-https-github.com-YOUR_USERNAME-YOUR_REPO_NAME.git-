@@ -30,9 +30,13 @@ def balance_oof_for_meta(X_oof: np.ndarray, y_oof: np.ndarray):
         return X_oof, y_oof
 
     k = min(3, min_class_count - 1)
+    majority_count = max(class_counts.values())
+    target_count = int(majority_count * 0.6)
+    strategy = {c: max(count, target_count) for c, count in class_counts.items()}
+    
     smote = SMOTE(
         k_neighbors=k,
-        sampling_strategy=0.6,
+        sampling_strategy=strategy,
         random_state=42
     )
     X_res, y_res = smote.fit_resample(X_oof, y_oof)
