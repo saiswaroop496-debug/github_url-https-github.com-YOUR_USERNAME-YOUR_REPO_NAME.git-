@@ -25,11 +25,18 @@ except ImportError as _e:
     # Inject a mock so joblib.load() can successfully unpickle the object
     import types
     from sklearn.pipeline import Pipeline
+    imb = types.ModuleType('imblearn')
+    sys.modules['imblearn'] = imb
     imb_pipe = types.ModuleType('imblearn.pipeline')
     imb_pipe.Pipeline = Pipeline
     sys.modules['imblearn.pipeline'] = imb_pipe
     
     from models.meta_learner import SafeSMOTE as _SafeSMOTE  # This will succeed now
+    # sklearn Pipeline requires all steps before the final estimator to have a transform method.
+    # SafeSMOTE is a sampler (fit_resample) and doesn't have one, so we patch it in memory
+    # just for inference to return X unmodified.
+    if not hasattr(_SafeSMOTE, 'transform'):
+        _SafeSMOTE.transform = lambda self, X: X
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 MODEL_DIR   = Path("model_versions/latest")
