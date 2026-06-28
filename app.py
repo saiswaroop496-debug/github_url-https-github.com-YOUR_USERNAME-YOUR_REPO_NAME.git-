@@ -151,7 +151,7 @@ st.sidebar.markdown("### Match Settings")
 
 team_display = {
     # Hosts
-    "USA": "🇺🇸 USA", "Canada": "🇨🇦 Canada", "Mexico": "🇲🇽 Mexico",
+    "United States": "🇺🇸 USA", "Canada": "🇨🇦 Canada", "Mexico": "🇲🇽 Mexico",
     # Group A
     "South Africa": "🇿🇦 South Africa", "South Korea": "🇰🇷 South Korea", "Czech Republic": "🇨🇿 Czech Republic",
     # Group B
