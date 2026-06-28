@@ -1,171 +1,138 @@
 import numpy as np
-import pandas as pd
-from scipy.optimize import minimize
-from math import exp, log
+from scipy.optimize import minimize, minimize_scalar
 from scipy.stats import poisson
 
-class DixonColesModel:
-    def __init__(self):
-        self.teams = []
-        self.params = {}
-        
-    def _tau(self, x, y, lambda_, mu, rho):
-        if x == 0 and y == 0: return 1 - lambda_ * mu * rho
-        elif x == 0 and y == 1: return 1 + lambda_ * rho
-        elif x == 1 and y == 0: return 1 + mu * rho
-        elif x == 1 and y == 1: return 1 - rho
-        else: return 1.0
+# --- STAGE 1: Fit attack/defense with identifiability constraint --------------
+def fit_attack_defense(home_teams, away_teams, home_goals, away_goals,
+                       all_teams, time_weights=None):
+    """
+    Stage 1: MLE for attack/defense parameters only.
+    Identifiability penalty: 1000 * sum(attack)^2 anchors mean(attack)=0.
+    """
+    n_teams = len(all_teams)
+    team_idx = {t: i for i, t in enumerate(all_teams)}
+    W = time_weights if time_weights is not None else np.ones(len(home_goals))
 
-    def dc_tau_matrix(self, max_goals: int, lambda_h: float, lambda_a: float, rho: float) -> np.ndarray:
-        """
-        Vectorized Dixon-Coles tau correction for the full goal grid.
-        Uses np.outer — no Python loops. ~80% faster than nested for-loops.
-        """
-        g = np.arange(max_goals + 1)
-        H, A = np.meshgrid(g, g, indexing='ij')  # shape (max_g+1, max_g+1)
+    def neg_log_likelihood(params):
+        attack  = params[:n_teams]
+        defense = params[n_teams:2*n_teams]
+        home_adv = params[2*n_teams]
 
-        tau = np.ones_like(H, dtype=float)
+        ll = 0.0
+        for i, (ht, at, gh, ga) in enumerate(zip(home_teams, away_teams,
+                                                   home_goals, away_goals)):
+            hi, ai = team_idx[ht], team_idx[at]
+            lam_h = np.exp(attack[hi] - defense[ai] + home_adv)
+            lam_a = np.exp(attack[ai] - defense[hi])
+            ll += W[i] * (poisson.logpmf(gh, lam_h) + poisson.logpmf(ga, lam_a))
 
-        # Only 4 cells require correction (the (0,0),(0,1),(1,0),(1,1) block)
-        mask_00 = (H == 0) & (A == 0)
-        mask_01 = (H == 0) & (A == 1)
-        mask_10 = (H == 1) & (A == 0)
-        mask_11 = (H == 1) & (A == 1)
+        # Identifiability constraint: reduced penalty 1000 (was 10000)
+        penalty = 1000.0 * (np.sum(attack) ** 2)
+        return -ll + penalty
 
-        tau[mask_00] = 1.0 - lambda_h * lambda_a * rho
-        tau[mask_01] = 1.0 + lambda_h * rho
-        tau[mask_10] = 1.0 + lambda_a * rho
-        tau[mask_11] = 1.0 - rho
+    x0 = np.zeros(2 * n_teams + 1)
+    result = minimize(neg_log_likelihood, x0, method='L-BFGS-B',
+                      options={'maxiter': 500, 'ftol': 1e-8})
+    params = result.x
+    attack  = params[:n_teams]
+    defense = params[n_teams:2*n_teams]
+    home_adv = params[2*n_teams]
+    return attack, defense, home_adv, team_idx
 
-        return tau        
-    def _interpolate_gamma_vec(self, neutral_gamma, full_gamma, venue_factor):
-        v = np.clip(venue_factor, 0.0, 1.0)
-        g_n = max(neutral_gamma, 1e-6)
-        g_f = max(full_gamma, 1e-6)
-        if abs(g_n - g_f) < 1e-8:
-            return np.full_like(v, g_n)
-        gamma_eff = g_n * (g_f / g_n) ** v
-        return np.clip(gamma_eff, 0.5, 2.5)
 
-    def _interpolate_gamma(self, neutral_gamma, full_gamma, venue_factor):
-        # Kept for backward compatibility with predict_proba
-        v = float(np.clip(venue_factor, 0.0, 1.0))
-        g_n = max(neutral_gamma, 1e-6)
-        g_f = max(full_gamma, 1e-6)
-        if abs(g_n - g_f) < 1e-8:
-            return g_n
-        gamma_eff = g_n * (g_f / g_n) ** v
-        return float(np.clip(gamma_eff, 0.5, 2.5))
-        
-    def _tau_vec(self, x, y, lambda_, mu, rho):
-        tau = np.ones_like(x, dtype=float)
-        
-        m_00 = (x == 0) & (y == 0)
-        m_01 = (x == 0) & (y == 1)
-        m_10 = (x == 1) & (y == 0)
-        m_11 = (x == 1) & (y == 1)
-        
-        tau[m_00] = 1.0 - lambda_[m_00] * mu[m_00] * rho
-        tau[m_01] = 1.0 + lambda_[m_01] * rho
-        tau[m_10] = 1.0 + mu[m_10] * rho
-        tau[m_11] = 1.0 - rho
-        
-        return tau
+# --- STAGE 2: Estimate ? with fixed attack/defense ----------------------------
+def dc_tau(gh, ga, lam_h, lam_a, rho):
+    """Dixon-Coles low-score correction for 4 outcome cells."""
+    if gh == 0 and ga == 0: return 1.0 - lam_h * lam_a * rho
+    if gh == 0 and ga == 1: return 1.0 + lam_h * rho
+    if gh == 1 and ga == 0: return 1.0 + lam_a * rho
+    if gh == 1 and ga == 1: return 1.0 - rho
+    return 1.0
 
-    def _log_likelihood(self, params_array):
-        n_teams = len(self.teams)
-        attack = params_array[:n_teams]
-        defense = params_array[n_teams:2*n_teams]
-        home_gamma = params_array[2*n_teams]
-        neutral_gamma = params_array[2*n_teams + 1]
-        rho = params_array[2*n_teams + 2]
-        
-        gamma_eff = self._interpolate_gamma_vec(neutral_gamma, home_gamma, self._venue_factor)
-        
-        lambda_ = np.exp(attack[self._i] + defense[self._j] + gamma_eff)
-        mu = np.exp(attack[self._j] + defense[self._i])
-        
-        tau_val = self._tau_vec(self._x, self._y, lambda_, mu, rho)
-        
-        if np.any(tau_val <= 0):
-            return 1e9 # Penalty
-            
-        log_p_x = self._x * np.log(lambda_) - lambda_ - self._log_fact_x
-        log_p_y = self._y * np.log(mu) - mu - self._log_fact_y
-        
-        ll = self._w_t * self._match_weight * (np.log(tau_val) + log_p_x + log_p_y)
-        
-        return -np.sum(ll)
-        
-    def fit(self, df):
-        import scipy.special
-        self.teams = list(set(df['home_team'].unique()) | set(df['away_team'].unique()))
-        self.team_to_idx = {t: i for i, t in enumerate(self.teams)}
-        n_teams = len(self.teams)
-        
-        # Precompute arrays for fast vectorized likelihood
-        self._i = np.array([self.team_to_idx[t] for t in df['home_team']])
-        self._j = np.array([self.team_to_idx[t] for t in df['away_team']])
-        self._x = df['home_goals'].values.astype(float)
-        self._y = df['away_goals'].values.astype(float)
-        
-        # Handle missing columns gracefully
-        if 'crowd_factor' in df.columns:
-            self._venue_factor = df['crowd_factor'].values
-        else:
-            self._venue_factor = np.zeros(len(df))
-            
-        if 'match_weight' in df.columns:
-            self._match_weight = df['match_weight'].values
-        else:
-            self._match_weight = np.ones(len(df))
-            
-        max_date = df['date'].max()
-        delta_days = (max_date - df['date']).dt.days.values
-        self._w_t = np.exp(-0.0065 * delta_days)
-        
-        self._log_fact_x = scipy.special.gammaln(self._x + 1)
-        self._log_fact_y = scipy.special.gammaln(self._y + 1)
-        
-        # Initial guess
-        x0 = np.zeros(2*n_teams + 3)
-        x0[2*n_teams] = 0.3 # home_gamma
-        x0[2*n_teams + 1] = 0.0 # neutral_gamma
-        x0[2*n_teams + 2] = 0.0 # rho
-        
-        # Bounds: rho in [-0.35, 0.35]
-        bounds = [(None, None)] * (2*n_teams + 2) + [(-0.35, 0.35)]
-        
-        res = minimize(self._log_likelihood, x0, method='L-BFGS-B', bounds=bounds)
-        
-        opt_params = res.x
-        self.attack = {t: opt_params[i] for i, t in enumerate(self.teams)}
-        self.defense = {t: opt_params[n_teams + i] for i, t in enumerate(self.teams)}
-        self.home_gamma = opt_params[2*n_teams]
-        self.neutral_gamma = opt_params[2*n_teams + 1]
-        self.rho = opt_params[2*n_teams + 2]
-        
-    def predict_proba(self, team1, team2, venue_factor=0.0):
-        # venue_factor: float [0.0=pure neutral, 0.6=host, 1.0=true home]
-        if team1 not in self.attack or team2 not in self.attack:
-            return {'Home': 0.33, 'Draw': 0.34, 'Away': 0.33} # We will still return this dict shape since the rest of the app might expect it, or change it?
-            
-        gamma_eff = self._interpolate_gamma(self.neutral_gamma, self.home_gamma, venue_factor)
-        lambda_ = exp(self.attack[team1] + self.defense[team2] + gamma_eff)
-        mu = exp(self.attack[team2] + self.defense[team1])
-        
-        max_goals = 10
-        g = np.arange(max_goals + 1)
-        ph = poisson.pmf(g, lambda_)
-        pa = poisson.pmf(g, mu)
-        joint = np.outer(ph, pa)
-        tau_mat = self.dc_tau_matrix(max_goals, lambda_, mu, self.rho)
-        prob_matrix = joint * tau_mat
-        
-        p_team1 = np.tril(prob_matrix, k=-1).sum()
-        p_draw = np.trace(prob_matrix)
-        p_team2 = np.triu(prob_matrix, k=1).sum()
-                
-        # Normalize just in case grid truncation causes minor loss
-        total = p_team1 + p_draw + p_team2
-        return {'Home': p_team1/total, 'Draw': p_draw/total, 'Away': p_team2/total}
+
+def fit_rho_concentrated(home_teams, away_teams, home_goals, away_goals,
+                          attack, defense, home_adv, team_idx,
+                          time_weights=None):
+    """
+    Stage 2: Estimate rho via concentrated log-likelihood.
+    attack/defense are FIXED from Stage 1 — only rho varies here.
+    Bounds widened to (-0.35, 0.35) per V6.2 blueprint.
+    """
+    W = time_weights if time_weights is not None else np.ones(len(home_goals))
+
+    def neg_ll_rho(rho):
+        ll = 0.0
+        for i, (ht, at, gh, ga) in enumerate(zip(home_teams, away_teams,
+                                                   home_goals, away_goals)):
+            hi, ai = team_idx[ht], team_idx[at]
+            lam_h = np.exp(attack[hi] - defense[ai] + home_adv)
+            lam_a = np.exp(attack[ai] - defense[hi])
+            tau = dc_tau(gh, ga, lam_h, lam_a, rho)
+            if tau <= 0:
+                return 1e9
+            ll += W[i] * np.log(max(tau, 1e-10))
+        return -ll
+
+    result = minimize_scalar(neg_ll_rho, bounds=(-0.35, 0.35), method='bounded')
+    rho = result.x
+    print(f"  ? (rho) converged to: {rho:.4f}")
+    return rho
+
+
+# --- Vectorized Score Matrix -------------------------------------------------
+def score_probability_matrix(lam_h: float, lam_a: float,
+                              rho: float, max_goals: int = 8) -> np.ndarray:
+    """Vectorized scoreline probability matrix using np.outer."""
+    g = np.arange(max_goals + 1)
+    ph = poisson.pmf(g, lam_h)
+    pa = poisson.pmf(g, lam_a)
+    joint = np.outer(ph, pa)
+
+    # Apply DC tau correction to 2x2 block
+    tau = np.ones((max_goals + 1, max_goals + 1))
+    tau[0, 0] = 1.0 - lam_h * lam_a * rho
+    tau[0, 1] = 1.0 + lam_h * rho
+    tau[1, 0] = 1.0 + lam_a * rho
+    tau[1, 1] = 1.0 - rho
+
+    matrix = joint * tau
+    return matrix / matrix.sum()   # normalize
+
+
+def outcome_probs(matrix: np.ndarray):
+    """Extract 1X2 from scoreline matrix."""
+    home_win = np.tril(matrix, k=-1).sum()
+    draw     = np.trace(matrix)
+    away_win = np.triu(matrix, k=1).sum()
+    total = home_win + draw + away_win
+    return home_win/total, draw/total, away_win/total
+
+
+# --- BTTS + Over/Under --------------------------------------------------------
+def extract_btts_ou(matrix: np.ndarray, ou_threshold: float = 2.5):
+    """
+    Extract BTTS (Both Teams to Score) and Over/Under probabilities
+    from the scoreline matrix. These markets have thinner bookmaker margins.
+    """
+    n = matrix.shape[0]
+
+    # BTTS Yes: both teams score at least 1
+    btts_yes = matrix[1:, 1:].sum()
+    btts_no  = 1.0 - btts_yes
+
+    # Over X.5: total goals > threshold
+    total_probs = {}
+    for threshold in [1.5, 2.5, 3.5]:
+        over = 0.0
+        for h in range(n):
+            for a in range(n):
+                if h + a > threshold:
+                    over += matrix[h, a]
+        total_probs[f'over_{threshold}'] = over
+        total_probs[f'under_{threshold}'] = 1.0 - over
+
+    return {
+        'btts_yes': round(btts_yes, 4),
+        'btts_no':  round(btts_no, 4),
+        **{k: round(v, 4) for k, v in total_probs.items()}
+    }

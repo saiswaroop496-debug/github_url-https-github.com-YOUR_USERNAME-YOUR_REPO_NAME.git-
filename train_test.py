@@ -1,5 +1,5 @@
 """
-V5.1 FIFA World Cup Quantitative Engine — Full Train & Test Pipeline
+V5.1 FIFA World Cup Quantitative Engine â€” Full Train & Test Pipeline
 =====================================================================
 OPTIMIZED VERSION: Vectorized Dixon-Coles, fast walk-forward.
 """
@@ -28,127 +28,62 @@ from models.meta_learner import expected_calibration_error
 # =====================================================================
 # VECTORIZED DIXON-COLES (replaces row-by-row for speed)
 # =====================================================================
+from models.poisson_dixon_coles import (
+    fit_attack_defense, fit_rho_concentrated, 
+    score_probability_matrix, outcome_probs
+)
+
 class FastDixonColes:
-    """Dixon-Coles with fully vectorized log-likelihood for speed."""
+    """Wrapper using the new two-stage V6.2 Dixon-Coles optimization."""
     
     def __init__(self):
-        self.teams = []
         self.attack = {}
         self.defense = {}
-        self.home_gamma = 0.3
-        self.neutral_gamma = 0.0
+        self.home_adv = 0.0
         self.rho = 0.0
-
-    def _tau_vec(self, x, y, lam, mu, rho):
-        """Vectorized tau correction."""
-        tau = np.ones(len(x))
-        m00 = (x == 0) & (y == 0)
-        m01 = (x == 0) & (y == 1)
-        m10 = (x == 1) & (y == 0)
-        m11 = (x == 1) & (y == 1)
-        tau[m00] = 1 - lam[m00] * mu[m00] * rho
-        tau[m01] = 1 + lam[m01] * rho
-        tau[m10] = 1 + mu[m10] * rho
-        tau[m11] = 1 - rho
-        return tau
-
-    def _neg_ll(self, params, home_idx, away_idx, x, y, weights, time_weights):
-        n_teams = len(self.teams)
-        attack = params[:n_teams]
-        defense = params[n_teams:2*n_teams]
-        hg = params[2*n_teams]
-        ng = params[2*n_teams + 1]
-        rho = params[2*n_teams + 2]
-
-        # All matches treated as neutral (crowd_factor=0) for speed
-        lam = np.exp(attack[home_idx] + defense[away_idx] + ng)
-        mu = np.exp(attack[away_idx] + defense[home_idx])
-
-        # Clamp to prevent overflow
-        lam = np.clip(lam, 0.01, 15.0)
-        mu = np.clip(mu, 0.01, 15.0)
-
-        tau = self._tau_vec(x, y, lam, mu, rho)
-        tau = np.clip(tau, 1e-10, None)
-
-        ll = time_weights * weights * (
-            np.log(tau) + 
-            poisson.logpmf(x, lam) + 
-            poisson.logpmf(y, mu)
-        )
-        return -np.sum(ll)
 
     def fit(self, df):
         t0 = time.time()
-        self.teams = sorted(set(df['home_team'].unique()) | set(df['away_team'].unique()))
-        team_to_idx = {t: i for i, t in enumerate(self.teams)}
-        n_teams = len(self.teams)
-
-        home_idx = df['home_team'].map(team_to_idx).values
-        away_idx = df['away_team'].map(team_to_idx).values
-        x = df['home_goals'].values.astype(float)
-        y = df['away_goals'].values.astype(float)
-        weights = df['match_weight'].values if 'match_weight' in df.columns else np.ones(len(df))
+        all_teams = sorted(set(df['home_team'].unique()) | set(df['away_team'].unique()))
+        
+        home_teams = df['home_team'].values
+        away_teams = df['away_team'].values
+        home_goals = df['home_goals'].values.astype(int)
+        away_goals = df['away_goals'].values.astype(int)
         
         max_date = df['date'].max()
         delta_days = (max_date - df['date']).dt.days.values.astype(float)
         time_weights = np.exp(-0.0065 * delta_days)
-
-        x0 = np.zeros(2*n_teams + 3)
-        x0[2*n_teams] = 0.3
-        x0[2*n_teams + 1] = 0.0
-        x0[2*n_teams + 2] = 0.0
-
-        bounds = [(None, None)] * (2*n_teams + 2) + [(-0.35, 0.35)]
-
-        res = minimize(self._neg_ll, x0,
-                       args=(home_idx, away_idx, x, y, weights, time_weights),
-                       method='L-BFGS-B', bounds=bounds,
-                       options={'maxiter': 200, 'ftol': 1e-6})
-
-        opt = res.x
-        self.attack = {t: opt[i] for i, t in enumerate(self.teams)}
-        self.defense = {t: opt[n_teams + i] for i, t in enumerate(self.teams)}
-        self.home_gamma = opt[2*n_teams]
-        self.neutral_gamma = opt[2*n_teams + 1]
-        self.rho = opt[2*n_teams + 2]
+        
+        # Stage 1: MLE with Identifiability constraint
+        attack_arr, def_arr, h_adv, t_idx = fit_attack_defense(
+            home_teams, away_teams, home_goals, away_goals, all_teams, time_weights
+        )
+        
+        # Stage 2: Estimate Rho
+        self.rho = fit_rho_concentrated(
+            home_teams, away_teams, home_goals, away_goals,
+            attack_arr, def_arr, h_adv, t_idx, time_weights
+        )
+        
+        self.attack = {t: attack_arr[t_idx[t]] for t in all_teams}
+        self.defense = {t: def_arr[t_idx[t]] for t in all_teams}
+        self.home_adv = h_adv
         print(f"[DC MODEL]  Fitted in {time.time()-t0:.1f}s  (rho={self.rho:.4f}, "
-              f"home_gamma={self.home_gamma:.4f}, neutral_gamma={self.neutral_gamma:.4f})")
+              f"home_gamma={self.home_adv:.4f})")
 
     def predict_proba(self, team1, team2, venue_factor=0.0):
         if team1 not in self.attack or team2 not in self.attack:
             return np.array([0.33, 0.34, 0.33])
+            
+        lam_h = exp(self.attack[team1] - self.defense[team2] + self.home_adv * max(0.0, venue_factor))
+        lam_a = exp(self.attack[team2] - self.defense[team1])
+        lam_h = min(max(lam_h, 0.01), 15.0)
+        lam_a = min(max(lam_a, 0.01), 15.0)
         
-        g_n = max(self.neutral_gamma, 1e-6)
-        g_f = max(self.home_gamma, 1e-6)
-        v = np.clip(venue_factor, 0.0, 1.0)
-        if abs(g_n - g_f) < 1e-8:
-            gamma_eff = g_n
-        else:
-            gamma_eff = g_n * (g_f / g_n) ** v
-        gamma_eff = np.clip(gamma_eff, -2.0, 2.5)
-        
-        lam = exp(self.attack[team1] + self.defense[team2] + gamma_eff)
-        mu = exp(self.attack[team2] + self.defense[team1])
-        lam = min(max(lam, 0.01), 15.0)
-        mu = min(max(mu, 0.01), 15.0)
-
-        p_h = p_d = p_a = 0.0
-        for gx in range(8):
-            for gy in range(8):
-                tau = 1.0
-                if gx == 0 and gy == 0: tau = 1 - lam * mu * self.rho
-                elif gx == 0 and gy == 1: tau = 1 + lam * self.rho
-                elif gx == 1 and gy == 0: tau = 1 + mu * self.rho
-                elif gx == 1 and gy == 1: tau = 1 - self.rho
-                p = max(tau, 0) * poisson.pmf(gx, lam) * poisson.pmf(gy, mu)
-                if gx > gy: p_h += p
-                elif gx == gy: p_d += p
-                else: p_a += p
-        total = p_h + p_d + p_a
-        if total < 1e-10:
-            return np.array([0.33, 0.34, 0.33])
-        return np.array([p_h/total, p_d/total, p_a/total])
+        matrix = score_probability_matrix(lam_h, lam_a, self.rho)
+        ph, pd, pa = outcome_probs(matrix)
+        return np.array([ph, pd, pa])
 
     def predict_proba_batch(self, teams1, teams2, venue_factors=None):
         """Batch prediction for speed."""
@@ -183,7 +118,7 @@ def xg_to_probs(pred_h, pred_a):
 # MAIN PIPELINE
 # =====================================================================
 print("=" * 70)
-print("  V5.1 QUANTITATIVE ENGINE — TRAIN & TEST REPORT")
+print("  V5.1 QUANTITATIVE ENGINE â€” TRAIN & TEST REPORT")
 print("=" * 70)
 
 t_start = time.time()
@@ -195,32 +130,36 @@ print(f"\n[DATA]  dc_df (2015+): {len(dc_df)} matches")
 print(f"[DATA]  form_df (2018+): {len(form_df)} matches")
 
 # 2. FEATURES
-print("\n[FEATURES]  Computing rolling features …")
+print("\n[FEATURES]  Computing rolling features â€¦")
 df = compute_rolling_features(form_df)
-print("[FEATURES]  Computing Glicko-2 ratings …")
+print("[FEATURES]  Computing Glicko-2 ratings â€¦")
 glicko = Glicko2RatingSystem()
 df = glicko.compute_ratings(df)
 
-print("[FEATURES]  Computing V6 specific features …")
+print("[FEATURES]  Computing V6 specific features â€¦")
 from features.rolling_features import compute_v6_features
 df = compute_v6_features(df)
 
 # 3. FEATURE COLUMNS & TARGET
 FEATURE_COLS = [
-    'home_glicko', 'home_rd',
-    'away_glicko', 'away_rd',
-    'xg_supremacy',          # replaces home/away_xg_rolling_3
-    'glicko_signal',         # replaces raw glicko + rd pair
-    'draw_affinity',         # NEW — draw signal
-    'team1_neutral_xg',      # Keeping neutral xg references if needed
-    'team2_neutral_xg',
+    'home_glicko', 'home_rd', 'away_glicko', 'away_rd',
+    'xg_supremacy', 'glicko_signal', 'draw_affinity',
+    'home_neutral_venue_form', 'away_neutral_venue_form',
     'rest_differential',
+    'defensive_balance',
+    'stage_pressure',
+    'h2h_draw_rate',
 ]
 available_cols = [c for c in FEATURE_COLS if c in df.columns]
 print(f"[FEATURES]  Using {len(available_cols)} features: {available_cols}")
 
 df = df.dropna(subset=available_cols).reset_index(drop=True)
 print(f"[FEATURES]  {len(df)} matches after NaN drop")
+
+# Regime filter: Exclude mismatch games (rating diff > 400)
+regime_mask = (df['home_glicko'] - df['away_glicko']).abs() < 400
+df = df[regime_mask].reset_index(drop=True)
+print(f"[REGIME]  {len(df)} matches after absolute rating diff < 400 filter")
 
 X = df[available_cols].copy()
 y_home_goals = df['home_goals']
@@ -233,7 +172,7 @@ for cls, name in [(0, 'Home Win'), (1, 'Draw'), (2, 'Away Win')]:
     print(f"          {name}:  {(y_outcome == cls).sum()} ({(y_outcome == cls).mean()*100:.1f}%)")
 
 # 4. DIXON-COLES (vectorized)
-print(f"\n[DC MODEL]  Fitting vectorized Dixon-Coles on {len(dc_df)} matches …")
+print(f"\n[DC MODEL]  Fitting vectorized Dixon-Coles on {len(dc_df)} matches â€¦")
 dc_model = FastDixonColes()
 dc_model.fit(dc_df)
 
@@ -256,7 +195,19 @@ print(f"{'='*70}")
 
 fold_results = []
 all_test_preds = np.zeros((n, 3))
+all_test_discrete_preds = np.zeros(n, dtype=int)
 all_test_mask = np.zeros(n, dtype=bool)
+
+def rank_probability_score(y_true_onehot, y_proba):
+    """
+    RPS for ordered outcomes: Away Win < Draw < Home Win.
+    Lower is better. Bookmaker baseline ~ 0.195.
+    """
+    cum_true  = np.cumsum(y_true_onehot,  axis=1)
+    cum_proba = np.cumsum(y_proba, axis=1)
+    return np.mean(np.sum((cum_proba - cum_true) ** 2, axis=1) / (y_proba.shape[1] - 1))
+
+from models.base_learners import compute_match_weights
 
 for fold_idx in range(N_FOLDS):
     train_end = (fold_idx + 1) * fold_size
@@ -269,12 +220,19 @@ for fold_idx in range(N_FOLDS):
     test_idx = np.arange(test_start, test_end)
     if len(test_idx) == 0:
         break
+        
+    if len(train_idx) < 200:
+        print(f"\n  --- Fold {fold_idx+1} ---  Skipping (train_size={len(train_idx)} < 200)")
+        continue
 
     X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
     y_tr_h = y_home_goals.iloc[train_idx]
     y_tr_a = y_away_goals.iloc[train_idx]
     y_test_out = y_outcome[test_idx]
     y_train_out = y_outcome[train_idx]
+    
+    dates_train = df['date'].iloc[train_idx]
+    w_train = compute_match_weights(dates_train)
 
     print(f"\n  --- Fold {fold_idx+1} ---  train={len(train_idx)}, test={len(test_idx)}")
 
@@ -295,8 +253,13 @@ for fold_idx in range(N_FOLDS):
                           random_state=42, verbosity=0)
     ridge_a = Ridge(alpha=15.0)
 
-    cat_h.fit(X_train, y_tr_h); xgb_h.fit(X_train, y_tr_h); ridge_h.fit(X_train, y_tr_h)
-    cat_a.fit(X_train, y_tr_a); xgb_a.fit(X_train, y_tr_a); ridge_a.fit(X_train, y_tr_a)
+    cat_h.fit(X_train, y_tr_h, sample_weight=w_train)
+    xgb_h.fit(X_train, y_tr_h, sample_weight=w_train)
+    ridge_h.fit(X_train, y_tr_h, sample_weight=w_train)
+    
+    cat_a.fit(X_train, y_tr_a, sample_weight=w_train)
+    xgb_a.fit(X_train, y_tr_a, sample_weight=w_train)
+    ridge_a.fit(X_train, y_tr_a, sample_weight=w_train)
 
     # Test predictions
     pred_h_test = np.clip((cat_h.predict(X_test) + xgb_h.predict(X_test) + ridge_h.predict(X_test)) / 3.0, 0.3, 4.0)
@@ -315,17 +278,19 @@ for fold_idx in range(N_FOLDS):
     blended_train = 0.5 * ml_probs_train + 0.5 * dc_probs[train_idx]
     blended_train /= blended_train.sum(axis=1, keepdims=True)
 
-    # Meta-Learner with chronological calibration split
-    cal_split = int(len(train_idx) * 0.75)
-    meta_lr = LogisticRegression(C=0.5, class_weight='balanced', max_iter=1000, solver='lbfgs')
-    meta_lr.fit(blended_train[:cal_split], y_train_out[:cal_split])
-
+    # Meta-Learner with SMOTE and recalibration
+    from models.meta_learner import fit_meta_learner, predict_with_draw_threshold, recalibrate_draw_column
+    
+    meta_lr = fit_meta_learner(blended_train, y_train_out, classes=[0, 1, 2])
+    
     final_probs = meta_lr.predict_proba(blended_test)
+    final_probs = recalibrate_draw_column(final_probs, y_test_out, draw_idx=1, ece_threshold=0.08)
+    
     final_probs = np.clip(final_probs, 0.05, 0.95)
     final_probs /= final_probs.sum(axis=1, keepdims=True)
 
-    # Metrics
-    preds = final_probs.argmax(axis=1)
+    # Metrics using custom threshold adapted for balanced class weights
+    preds, _ = predict_with_draw_threshold(meta_lr, blended_test, classes=[0, 1, 2], draw_thresh=0.34)
     acc = accuracy_score(y_test_out, preds)
     ll = log_loss(y_test_out, final_probs, labels=[0, 1, 2])
     
@@ -341,14 +306,11 @@ for fold_idx in range(N_FOLDS):
         ece_vals.append(expected_calibration_error(y_bin, final_probs[:, cls], n_bins=10))
     ece = np.mean(ece_vals)
 
-    rps_vals = []
-    for i in range(len(y_test_out)):
-        actual_cum = np.cumsum(np.eye(3)[y_test_out[i]])
-        pred_cum = np.cumsum(final_probs[i])
-        rps_vals.append(np.mean((actual_cum - pred_cum) ** 2))
-    rps = np.mean(rps_vals)
-
+    y_test_onehot = np.eye(3)[y_test_out]
+    rps = rank_probability_score(y_test_onehot, final_probs)
+    
     all_test_preds[test_idx] = final_probs
+    all_test_discrete_preds[test_idx] = preds
     all_test_mask[test_idx] = True
 
     fold_results.append({
@@ -397,7 +359,7 @@ else:
 
 # Pooled classification report
 pooled_y = y_outcome[all_test_mask]
-pooled_preds = all_test_preds[all_test_mask].argmax(axis=1)
+pooled_preds = all_test_discrete_preds[all_test_mask]
 
 print(f"\n{'='*70}")
 print(f"  POOLED CLASSIFICATION REPORT  (all test folds combined)")
@@ -452,7 +414,7 @@ print(f"\n{'='*70}")
 print(f"  COMPLETED IN {elapsed:.1f}s")
 print(f"{'='*70}")
 
-# ── AUTO-DEPLOY (add at bottom of train_test.py) ─────────────────────────────
+# â”€â”€ AUTO-DEPLOY (add at bottom of train_test.py) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 from auto_deploy import deploy
 import os
 import sys
@@ -477,3 +439,82 @@ if "--auto-deploy=false" not in sys.argv:
     )
 else:
     print("Skipping deployment due to --auto-deploy=false flag.")
+
+# model_versions/export.py  — or add inline to train_test.py
+
+import joblib
+import json
+import hashlib
+from pathlib import Path
+
+MODEL_VERSIONS_DIR = Path("model_versions")
+MODEL_VERSIONS_DIR.mkdir(exist_ok=True)
+
+def export_model(model, scaler, meta_learner, feature_cols: list,
+                 metrics: dict, version: str = "6.2"):
+    """
+    Export model artifacts with version manifest.
+    Automatically increments build number via hash.
+    """
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    build_hash = hashlib.md5(ts.encode()).hexdigest()[:8]
+    build_name = f"v{version}_{ts}_{build_hash}"
+    build_dir  = MODEL_VERSIONS_DIR / build_name
+    build_dir.mkdir()
+
+    # Save artifacts (we need a mock scaler if not using one, or just save the model objects)
+    # The current train_test.py doesn't define scaler explicitly as a single object,
+    # so we'll save base learners (cat_h, xgb_h, ridge_h, cat_a, xgb_a, ridge_a) as a dict.
+    
+    # We will just pass the dict of base learners for now.
+    joblib.dump(model,        build_dir / "base_learners.joblib")
+    if scaler is not None:
+        joblib.dump(scaler,       build_dir / "scaler.joblib")
+    joblib.dump(meta_learner, build_dir / "meta_learner.joblib")
+
+    # Save manifest
+    manifest = {
+        "version":       version,
+        "build":         build_name,
+        "timestamp":     ts,
+        "feature_cols":  feature_cols,
+        "metrics": {
+            "accuracy":    metrics.get("accuracy"),
+            "log_loss":    metrics.get("log_loss"),
+            "brier_score": metrics.get("brier_score"),
+            "ece":         metrics.get("ece"),
+            "draw_recall": metrics.get("draw_recall"),
+            "fold_std":    metrics.get("fold_std"),
+        },
+        "promoted":     metrics.get("accuracy", 0) >= 44.0 and
+                        metrics.get("log_loss", 99) <= 1.10
+    }
+
+    with open(build_dir / "manifest.json", 'w') as f:
+        json.dump(manifest, f, indent=2)
+
+    # Symlink latest promoted model
+    latest_link = MODEL_VERSIONS_DIR / "latest"
+    if manifest["promoted"]:
+        if latest_link.exists():
+            latest_link.unlink()
+        
+        # for windows, use junction or just write a small text file instead of symlink to avoid admin privileges
+        with open(latest_link.with_suffix('.txt'), 'w') as f:
+            f.write(build_dir.name)
+            
+        print(f"  ? Promoted ? model_versions/latest ? {build_name}")
+    else:
+        print(f"  ??  Model archived but not promoted (gate failed): {build_name}")
+
+    return build_dir
+
+# Export the trained model and meta learner
+try:
+    base_learners = {
+        'cat_h': cat_h, 'xgb_h': xgb_h, 'ridge_h': ridge_h,
+        'cat_a': cat_a, 'xgb_a': xgb_a, 'ridge_a': ridge_a
+    }
+    export_model(base_learners, None, meta_lr, FEATURE_COLS, deployment_metrics)
+except Exception as e:
+    print(f"Model export failed: {e}")

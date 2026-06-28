@@ -25,36 +25,60 @@ class PurgedTimeSeriesSplit:
                 
             yield indices[:train_end], indices[test_start:test_end]
 
+def compute_match_weights(dates: pd.Series, xi: float = 0.003) -> np.ndarray:
+    """
+    Exponential time-decay: w(t) = exp(-xi * days_ago)
+    """
+    latest = pd.to_datetime(dates).max()
+    days_ago = (latest - pd.to_datetime(dates)).dt.days.values
+    weights = np.exp(-xi * days_ago)
+    return weights / weights.sum() * len(weights)
+
 class BaseLearnerStack:
     def __init__(self):
         self.cat = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10, iterations=250, learning_rate=0.04, subsample=0.8, colsample_bylevel=0.7, random_seed=42, verbose=0)
         self.xgb = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0, n_estimators=200, learning_rate=0.04, subsample=0.8, colsample_bytree=0.7, random_state=42, verbosity=0)
         self.ridge = Ridge(alpha=15.0)
         
-    def generate_oof(self, X, y_home, y_away):
+    def generate_oof(self, X, y_home, y_away, dates):
         cv = PurgedTimeSeriesSplit(n_splits=5, embargo_gap=4)
         
         oof_home = np.zeros(len(X))
         oof_away = np.zeros(len(X))
         counts = np.zeros(len(X))
         
+        weights = compute_match_weights(dates)
+        
         for train_idx, test_idx in cv.split(X):
             X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+            w_train = weights[train_idx]
             
             # Home
             y_train_h = y_home.iloc[train_idx]
             p_home = np.zeros(len(test_idx))
-            for model in [self.cat, self.xgb, self.ridge]:
-                model.fit(X_train, y_train_h)
-                p_home += model.predict(X_test)
+            
+            self.cat.fit(X_train, y_train_h, sample_weight=w_train)
+            self.xgb.fit(X_train, y_train_h, sample_weight=w_train)
+            self.ridge.fit(X_train, y_train_h, sample_weight=w_train)
+            
+            p_home += self.cat.predict(X_test)
+            p_home += self.xgb.predict(X_test)
+            p_home += self.ridge.predict(X_test)
+            
             oof_home[test_idx] += p_home / 3.0
             
             # Away
             y_train_a = y_away.iloc[train_idx]
             p_away = np.zeros(len(test_idx))
-            for model in [self.cat, self.xgb, self.ridge]:
-                model.fit(X_train, y_train_a)
-                p_away += model.predict(X_test)
+            
+            self.cat.fit(X_train, y_train_a, sample_weight=w_train)
+            self.xgb.fit(X_train, y_train_a, sample_weight=w_train)
+            self.ridge.fit(X_train, y_train_a, sample_weight=w_train)
+            
+            p_away += self.cat.predict(X_test)
+            p_away += self.xgb.predict(X_test)
+            p_away += self.ridge.predict(X_test)
+            
             oof_away[test_idx] += p_away / 3.0
             
             counts[test_idx] += 1

@@ -1,0 +1,105 @@
+name: V6.2 Validate & Deploy
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 21 * * 0'   # Every Sunday 9 PM UTC = Monday 2:30 AM IST
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      accuracy: $\{{ steps.gate.outputs.accuracy }}
+      passed:   $\{{ steps.gate.outputs.passed }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: $\{{ runner.os }}-pip-$\{{ hashFiles('requirements.txt') }}
+          restore-keys: $\{{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run validation pipeline
+        env:
+          RAPIDAPI_KEY: $\{{ secrets.RAPIDAPI_KEY }}
+        run: python train_test.py 2>&1 | tee validation_output.txt
+
+      - name: Check accuracy + log-loss gates
+        id: gate
+        run: |
+          python - <<'EOF'
+          import re, sys, os
+
+          with open('validation_output.txt') as f:
+              txt = f.read()
+
+          # Parse accuracy
+          acc_match = re.search(r'Accuracy[:\s]+(\d+\.?\d*)%', txt)
+          ll_match  = re.search(r'Log.Loss[:\s]+([\d.]+)', txt)
+
+          acc = float(acc_match.group(1)) if acc_match else 0.0
+          ll  = float(ll_match.group(1))  if ll_match  else 99.0
+
+          print(f"Accuracy: {acc:.1f}%")
+          print(f"Log-Loss: {ll:.4f}")
+
+          passed = (acc >= 44.0 and ll <= 1.10)
+
+          # Write GitHub outputs
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"accuracy={acc:.1f}\n")
+              f.write(f"passed={'true' if passed else 'false'}\n")
+
+          if not passed:
+              print(f"? GATE FAILED: Accuracy={acc:.1f}% (need =44%), Log-Loss={ll:.4f} (need =1.10)")
+              sys.exit(1)
+          else:
+              print(f"? Gates passed: Accuracy={acc:.1f}%, Log-Loss={ll:.4f}")
+          EOF
+
+      - name: Upload validation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-report-$\{{ github.run_number }}
+          path: validation_output.txt
+          retention-days: 30
+
+  deploy:
+    needs: validate
+    if: needs.validate.outputs.passed == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy confirmation
+        run: |
+          echo "? Accuracy: $\{{ needs.validate.outputs.accuracy }}%"
+          echo "? Streamlit Cloud redeploys automatically on push to main."
+          echo "? No manual deploy step needed — Streamlit watches main branch."
+
+  notify-failure:
+    needs: validate
+    if: failure()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send failure notification
+        env:
+          TELEGRAM_BOT_TOKEN: $\{{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: $\{{ secrets.TELEGRAM_CHANNEL_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$\{TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="$\{TELEGRAM_CHANNEL_ID}" \
+            -d text="?? V6.2 CI FAILED — accuracy gate not met. Check GitHub Actions for details." \
+            -d parse_mode="Markdown" || echo "Telegram notification skipped (no token)"

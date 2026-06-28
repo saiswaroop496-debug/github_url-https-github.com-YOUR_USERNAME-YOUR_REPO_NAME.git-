@@ -55,6 +55,11 @@ def load_and_train_pipeline():
     glicko = Glicko2RatingSystem()
     df = glicko.compute_ratings(df)
     
+    # Regime filter
+    if 'home_glicko' in df.columns and 'away_glicko' in df.columns:
+        regime_mask = (df['home_glicko'] - df['away_glicko']).abs() < 400
+        df = df[regime_mask].reset_index(drop=True)
+    
     models = instantiate_models()
     
     # Fit Dixon-Coles on 2015+ dc_df
@@ -388,6 +393,15 @@ try:
             xg_supremacy=mock_features['xg_supremacy']
         )
 
+        FEATURE_COLS = [
+            'home_glicko', 'home_rd', 'away_glicko', 'away_rd',
+            'xg_supremacy', 'glicko_signal', 'draw_affinity',
+            'home_neutral_venue_form', 'away_neutral_venue_form',
+            'rest_differential',
+            'defensive_balance',
+            'stage_pressure',
+            'h2h_draw_rate',
+        ]
         if is_pro:
             render_value_meter(final_probs['Home'], market_odds_home, team1)
             render_value_meter(final_probs['Draw'], market_odds_draw, "Draw")

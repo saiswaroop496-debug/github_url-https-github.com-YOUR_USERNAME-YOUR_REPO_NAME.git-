@@ -1,0 +1,20 @@
+[project]
+name = "worldcup-v5"
+version = "0.1.0"
+description = "FIFA World Cup Quant Engine"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "streamlit==1.35.0",
+    "pandas==2.2.2",
+    "numpy==1.26.4",
+    "scipy==1.13.0",
+    "scikit-learn==1.4.2",
+    "catboost==1.2.5",
+    "xgboost==2.0.3",
+    "lightgbm==4.3.0",
+    "joblib==1.4.2",
+    "python-dotenv==1.0.1",
+    "statsmodels==0.14.2",
+    "requests",
+]

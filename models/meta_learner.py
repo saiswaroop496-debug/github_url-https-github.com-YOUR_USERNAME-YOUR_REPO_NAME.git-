@@ -1,42 +1,150 @@
 import numpy as np
 from sklearn.linear_model import LogisticRegression
+from sklearn.calibration import CalibratedClassifierCV, calibration_curve
+from sklearn.isotonic import IsotonicRegression
+import warnings
 
-class BetaCalibration:
-    def __init__(self):
-        self.coefs = {}
-        self.intercepts = {}
-        
-    def _log_odds(self, p):
-        p = np.clip(p, 1e-6, 1 - 1e-6)
-        return np.log(p / (1 - p))
-        
-    def fit(self, probs, y_true):
-        # probs: shape (n_samples, 3)
-        # y_true: shape (n_samples,) integers 0, 1, 2
-        
-        for class_idx in range(3):
-            # Binary target for this class
-            y_binary = (y_true == class_idx).astype(int)
-            
-            # Predictor is the log-odds of the predicted probability for this class
-            X = self._log_odds(probs[:, class_idx]).reshape(-1, 1)
-            
-            lr = LogisticRegression(solver='lbfgs')
-            lr.fit(X, y_binary)
-            
-            self.coefs[class_idx] = lr.coef_[0][0]
-            self.intercepts[class_idx] = lr.intercept_[0]
-            
-    def predict_proba(self, probs):
-        calibrated = np.zeros_like(probs)
-        for class_idx in range(3):
-            X = self._log_odds(probs[:, class_idx])
-            z = self.coefs[class_idx] * X + self.intercepts[class_idx]
-            calibrated[:, class_idx] = 1 / (1 + np.exp(-z))
-            
-        # Normalize back to sum=1.0
-        row_sums = calibrated.sum(axis=1, keepdims=True)
-        return calibrated / row_sums
+try:
+    from imblearn.over_sampling import SMOTE
+    SMOTE_AVAILABLE = True
+except ImportError:
+    SMOTE_AVAILABLE = False
+    warnings.warn("imbalanced-learn not installed. SMOTE disabled. Run: pip install imbalanced-learn")
+
+
+# --- SMOTE Balancing (training split only) ------------------------------------
+def balance_oof_for_meta(X_oof: np.ndarray, y_oof: np.ndarray):
+    """
+    Apply SMOTE to OOF training data to address draw class imbalance.
+    k_neighbors=3 is safe for small datasets (~120-150 samples).
+    Returns original data unchanged if SMOTE unavailable.
+    """
+    if not SMOTE_AVAILABLE:
+        return X_oof, y_oof
+
+    class_counts = {c: (y_oof == c).sum() for c in np.unique(y_oof)}
+    min_class_count = min(class_counts.values())
+
+    if min_class_count < 4:
+        warnings.warn(f"Min class count {min_class_count} too small for SMOTE. Skipping.")
+        return X_oof, y_oof
+
+    k = min(3, min_class_count - 1)
+    smote = SMOTE(k_neighbors=k, random_state=42)
+    X_res, y_res = smote.fit_resample(X_oof, y_oof)
+    
+    draw_original = ((y_oof == 'Draw') | (y_oof == 1)).sum()
+    draw_res = ((y_res == 'Draw') | (y_res == 1)).sum()
+    
+    print(f"  SMOTE: {len(y_oof)} ? {len(y_res)} samples "
+          f"(Draw: {draw_original} ? {draw_res})")
+    return X_res, y_res
+
+
+# --- Draw-Isolated Platt Recalibration ----------------------------------------
+def recalibrate_draw_column(proba: np.ndarray, y_true: np.ndarray,
+                             draw_idx: int, ece_threshold: float = 0.08):
+    """
+    If ECE for the Draw column exceeds threshold, apply isotonic recalibration
+    strictly to the Draw probability column. Does not touch Home/Away columns.
+    Target range: draw probabilities scaled to [0.28, 0.38].
+    """
+    draw_probs = proba[:, draw_idx]
+    draw_true  = ((y_true == 'Draw') | (y_true == 1)).astype(int)
+
+    # Compute draw-column ECE
+    fraction_pos, mean_pred = calibration_curve(draw_true, draw_probs, n_bins=5)
+    draw_ece = np.mean(np.abs(fraction_pos - mean_pred))
+
+    if draw_ece <= ece_threshold:
+        print(f"  Draw ECE={draw_ece:.4f} within threshold. No recalibration needed.")
+        return proba
+
+    print(f"  Draw ECE={draw_ece:.4f} > {ece_threshold}. Applying isotonic recalibration.")
+    iso = IsotonicRegression(out_of_bounds='clip', y_min=0.28, y_max=0.38)
+    iso.fit(draw_probs, draw_true.astype(float))
+    recal_draw = iso.predict(draw_probs)
+
+    # Re-normalize so rows sum to 1
+    proba_new = proba.copy()
+    proba_new[:, draw_idx] = recal_draw
+    row_sums = proba_new.sum(axis=1, keepdims=True)
+    return proba_new / row_sums
+
+
+# --- Meta-Learner Fit ---------------------------------------------------------
+def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray, classes: list):
+    """
+    Full meta-learner training pipeline:
+    1. SMOTE balance on training split
+    2. Balanced LR fit
+    3. Platt calibration on held-out chronological slice
+    4. Draw column recalibration if ECE > 0.08
+    """
+    n = len(y_oof)
+    cal_split = int(n * 0.85)
+
+    X_train, y_train = oof_preds[:cal_split], y_oof[:cal_split]
+    X_cal, y_cal     = oof_preds[cal_split:], y_oof[cal_split:]
+
+    # Apply SMOTE only to training split
+    X_train_bal, y_train_bal = balance_oof_for_meta(X_train, y_train)
+
+    lr = LogisticRegression(
+        C=0.5,
+        class_weight='balanced',
+        multi_class='multinomial',
+        solver='lbfgs',
+        max_iter=1000,
+        random_state=42
+    )
+    lr.fit(X_train_bal, y_train_bal)
+
+    calibrated = CalibratedClassifierCV(lr, cv='prefit', method='sigmoid')
+    calibrated.fit(X_cal, y_cal)
+
+    return calibrated
+
+
+def predict_with_draw_threshold(model, X: np.ndarray, classes: list,
+                                  draw_thresh: float = 0.34):
+    """
+    Predict with draw override gate at calibrated threshold.
+    draw_thresh=0.34 tuned for class_weight='balanced' output distribution.
+    """
+    proba = model.predict_proba(X)
+    class_list = list(classes)
+    draw_idx = class_list.index('Draw') if 'Draw' in class_list else class_list.index(1)
+    preds = []
+    for p in proba:
+        if p[draw_idx] >= draw_thresh:
+            preds.append(class_list[draw_idx])
+        else:
+            preds.append(class_list[np.argmax(p)])
+    return np.array(preds), proba
+
+
+# --- Optuna Cap (if used for LR hyperparameter tuning) ------------------------
+def tune_lr_optuna(X: np.ndarray, y: np.ndarray):
+    """Optuna-tuned C parameter. Capped at 20 trials, 30s timeout."""
+    try:
+        import optuna
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+        def objective(trial):
+            C = trial.suggest_float('C', 0.01, 2.0, log=True)
+            from sklearn.model_selection import cross_val_score
+            lr = LogisticRegression(C=C, class_weight='balanced',
+                                    solver='lbfgs', max_iter=500)
+            scores = cross_val_score(lr, X, y, cv=3, scoring='neg_log_loss')
+            return -scores.mean()
+
+        study = optuna.create_study(direction='minimize')
+        study.optimize(objective, n_trials=20, timeout=30)
+        return study.best_params['C']
+
+    except ImportError:
+        return 0.5   # safe default if Optuna not installed
 
 def expected_calibration_error(y_true, y_prob, n_bins=10):
     bins = np.linspace(0, 1, n_bins + 1)
@@ -48,63 +156,3 @@ def expected_calibration_error(y_true, y_prob, n_bins=10):
             conf = y_prob[mask].mean()
             ece += mask.sum() / len(y_true) * abs(acc - conf)
     return ece
-
-class MetaLearner:
-    def __init__(self):
-        self.meta_model = LogisticRegression(C=0.5, class_weight='balanced', solver='lbfgs', max_iter=1000)
-        self.calibrator = BetaCalibration()
-        
-    def fit_predict(self, X, y):
-        n = len(X)
-        cal_start = int(n * 0.75)   # last 25% chronologically
-        
-        X_train, y_train = X[:cal_start], y[:cal_start]
-        X_calib, y_calib = X[cal_start:], y[cal_start:]
-        
-        # Train
-        self.meta_model.fit(X_train, y_train)
-        
-        # Predict on Calib and fit calibrator
-        calib_probs = self.meta_model.predict_proba(X_calib)
-        self.calibrator.fit(calib_probs, y_calib)
-        
-        # Return full calibrated predictions for the entire set
-        raw_probs = self.meta_model.predict_proba(X)
-        final_probs = self.calibrator.predict_proba(raw_probs)
-        
-        # Hard constraints
-        final_probs = np.clip(final_probs, 0.05, 0.95)
-        final_probs = final_probs / final_probs.sum(axis=1, keepdims=True)
-        
-        return final_probs
-
-def predict_with_draw_threshold(model, X: np.ndarray, classes, draw_thresh: float = 0.28):
-    """
-    Override argmax for Draw class: if Draw prob >= draw_thresh, predict Draw.
-    This unlocks draws that the meta-learner suppresses at the decision boundary.
-    """
-    proba = model.predict_proba(X)
-    draw_idx = list(classes).index('Draw')
-    preds = []
-    for p in proba:
-        if p[draw_idx] >= draw_thresh:
-            preds.append('Draw')
-        else:
-            preds.append(classes[np.argmax(p)])
-    return np.array(preds), proba
-
-def build_ordinal_meta_learner(X_oof: np.ndarray, y_oof_encoded: np.ndarray):
-    """
-    Ordered logit respects Away Win < Draw < Home Win natural ordering.
-    Use as challenger against the balanced LR in champion/challenger gate.
-    
-    y_oof_encoded must be integer: 0=Away Win, 1=Draw, 2=Home Win
-    """
-    try:
-        from statsmodels.miscmodels.ordinal_model import OrderedModel
-        ord_model = OrderedModel(y_oof_encoded, X_oof, distr='logit')
-        result = ord_model.fit(method='bfgs', disp=False)
-        return result
-    except ImportError:
-        print("statsmodels not installed. Run: pip install statsmodels")
-        return None
