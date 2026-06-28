@@ -239,18 +239,18 @@ for fold_idx in range(N_FOLDS):
     # Base Learners
     cat_h = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
                                iterations=250, learning_rate=0.04, subsample=0.8,
-                               random_seed=42, verbose=0)
+                               random_seed=42, verbose=0, thread_count=1)
     xgb_h = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
                           n_estimators=200, learning_rate=0.04, subsample=0.8,
-                          random_state=42, verbosity=0)
+                          random_state=42, verbosity=0, n_jobs=1)
     ridge_h = Ridge(alpha=15.0)
 
     cat_a = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
                                iterations=250, learning_rate=0.04, subsample=0.8,
-                               random_seed=42, verbose=0)
+                               random_seed=42, verbose=0, thread_count=1)
     xgb_a = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
                           n_estimators=200, learning_rate=0.04, subsample=0.8,
-                          random_state=42, verbosity=0)
+                          random_state=42, verbosity=0, n_jobs=1)
     ridge_a = Ridge(alpha=15.0)
 
     cat_h.fit(X_train, y_tr_h, sample_weight=w_train)

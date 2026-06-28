@@ -32,7 +32,7 @@ def fit_attack_defense(home_teams, away_teams, home_goals, away_goals,
 
     x0 = np.zeros(2 * n_teams + 1)
     result = minimize(neg_log_likelihood, x0, method='L-BFGS-B',
-                      options={'maxiter': 500, 'ftol': 1e-8})
+                      options={'maxiter': 100, 'ftol': 1e-8})
     params = result.x
     attack  = params[:n_teams]
     defense = params[n_teams:2*n_teams]
