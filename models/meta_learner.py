@@ -102,18 +102,13 @@ def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray, classes: list):
     4. Draw column recalibration if ECE > 0.08
     """
     lr = LogisticRegression(
-        C=0.1,
+        C=0.5,
         class_weight=None,
         multi_class='multinomial',
         solver='lbfgs',
         max_iter=1000,
         random_state=42
     )
-
-    pipeline = Pipeline([
-        ('smote', SafeSMOTE(random_state=42)),
-        ('lr', lr)
-    ])
 
     pipeline = Pipeline([
         ('smote', SafeSMOTE(random_state=42)),

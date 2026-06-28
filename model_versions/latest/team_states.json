@@ -1,338 +1,386 @@
 {
   "Algeria": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1567.54,
+    "neutral_venue_form": 0.5,
+    "rd": 95.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.585
   },
   "Argentina": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1635.46,
+    "neutral_venue_form": 0.5,
+    "rd": 71.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.747
   },
   "Australia": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-25 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1511.76,
+    "neutral_venue_form": 0.5,
+    "rd": 90.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.255
   },
   "Austria": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1530.55,
+    "neutral_venue_form": 0.5,
+    "rd": 94.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.304
   },
   "Belgium": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1554.73,
+    "neutral_venue_form": 0.5,
+    "rd": 84.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.966
   },
   "Bosnia and Herzegovina": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1419.11,
+    "neutral_venue_form": 0.5,
+    "rd": 105.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.485
   },
   "Brazil": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1615.62,
+    "neutral_venue_form": 0.5,
+    "rd": 64.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 2.149
   },
   "Canada": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1483.06,
+    "neutral_venue_form": 0.5,
+    "rd": 94.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 2.549
   },
   "Cape Verde": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1473.58,
+    "neutral_venue_form": 0.5,
+    "rd": 113.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.958
   },
   "Colombia": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.015,
+    "glicko": 1577.47,
+    "neutral_venue_form": 0.5,
+    "rd": 65.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.713
   },
   "Congo DR": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.29,
+    "glicko": 1487.49,
+    "neutral_venue_form": 0.5,
+    "rd": 129.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.289
   },
   "Croatia": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1504.03,
+    "neutral_venue_form": 0.5,
+    "rd": 69.0,
+    "sigma": 0.06,
+    "xg_rolling_3": NaN
   },
   "Czech Republic": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1418.22,
+    "neutral_venue_form": 0.5,
+    "rd": 99.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.721
   },
   "DR Congo": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1450.2,
+    "neutral_venue_form": 0.5,
+    "rd": 110.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.586
   },
   "Ecuador": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-25 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1523.17,
+    "neutral_venue_form": 0.5,
+    "rd": 78.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.003
   },
   "Egypt": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1493.6,
+    "neutral_venue_form": 0.5,
+    "rd": 90.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.822
   },
   "England": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1557.03,
+    "neutral_venue_form": 0.5,
+    "rd": 83.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.908
   },
   "France": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1631.2,
+    "neutral_venue_form": 0.5,
+    "rd": 70.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 2.487
   },
   "Germany": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-25 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1511.25,
+    "neutral_venue_form": 0.5,
+    "rd": 80.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 2.843
   },
   "Ghana": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1455.11,
+    "neutral_venue_form": 0.5,
+    "rd": 100.0,
+    "sigma": 0.06,
+    "xg_rolling_3": NaN
   },
   "Haiti": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1447.77,
+    "neutral_venue_form": 0.5,
+    "rd": 115.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.55
   },
   "Iran": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1499.25,
+    "neutral_venue_form": 0.5,
+    "rd": 91.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.952
   },
   "Iraq": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1419.39,
+    "neutral_venue_form": 0.5,
+    "rd": 90.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.713
   },
   "Ivory Coast": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-20 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1522.45,
+    "neutral_venue_form": 0.5,
+    "rd": 104.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.684
   },
   "Japan": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-25 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1573.13,
+    "neutral_venue_form": 0.5,
+    "rd": 74.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 2.4
   },
   "Jordan": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1421.74,
+    "neutral_venue_form": 0.5,
+    "rd": 87.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.729
   },
   "Mexico": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1535.38,
+    "neutral_venue_form": 0.5,
+    "rd": 59.0,
+    "sigma": 0.06,
+    "xg_rolling_3": NaN
   },
   "Morocco": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1577.33,
+    "neutral_venue_form": 0.5,
+    "rd": 87.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.93
   },
   "Netherlands": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-25 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1534.06,
+    "neutral_venue_form": 0.5,
+    "rd": 78.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 2.929
   },
   "New Zealand": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1396.15,
+    "neutral_venue_form": 0.5,
+    "rd": 109.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.207
   },
   "Norway": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1494.91,
+    "neutral_venue_form": 0.5,
+    "rd": 100.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 2.686
   },
   "Panama": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1351.85,
+    "neutral_venue_form": 0.5,
+    "rd": 87.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.554
   },
   "Paraguay": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-25 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1489.4,
+    "neutral_venue_form": 0.5,
+    "rd": 84.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.657
   },
   "Portugal": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.018,
+    "glicko": 1603.15,
+    "neutral_venue_form": 0.5,
+    "rd": 74.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.444
   },
   "Qatar": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1410.71,
+    "neutral_venue_form": 0.5,
+    "rd": 83.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.49
   },
   "Saudi Arabia": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1417.8,
+    "neutral_venue_form": 0.5,
+    "rd": 76.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.456
   },
   "Scotland": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1443.74,
+    "neutral_venue_form": 0.5,
+    "rd": 97.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.395
   },
   "Senegal": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1492.87,
+    "neutral_venue_form": 0.5,
+    "rd": 94.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.159
   },
   "South Africa": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1465.34,
+    "neutral_venue_form": 0.5,
+    "rd": 104.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.758
   },
   "South Korea": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1513.42,
+    "neutral_venue_form": 0.5,
+    "rd": 77.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.908
   },
   "Spain": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1608.77,
+    "neutral_venue_form": 0.5,
+    "rd": 67.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.714
   },
   "Sweden": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-25 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1455.01,
+    "neutral_venue_form": 0.5,
+    "rd": 90.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 2.459
   },
   "Switzerland": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-24 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1489.43,
+    "neutral_venue_form": 0.5,
+    "rd": 84.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 2.039
   },
   "Tunisia": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-25 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1485.06,
+    "neutral_venue_form": 0.5,
+    "rd": 88.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.558
   },
   "Turkey": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-19 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1481.3,
+    "neutral_venue_form": 0.5,
+    "rd": 98.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 0.808
   },
   "United States": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-11 00:00:00"
+    "draw_rate": 0.29,
+    "glicko": 1510.91,
+    "neutral_venue_form": 0.5,
+    "rd": 129.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.546
   },
   "Uruguay": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-26 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1539.87,
+    "neutral_venue_form": 0.5,
+    "rd": 70.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.063
   },
   "Uzbekistan": {
-    "glicko": 1500.0,
-    "rd": 200.0,
-    "xg_rolling_3": 1.2,
-    "neutral_venue_form": 1.2,
-    "last_match_date": "2026-06-27 00:00:00"
+    "draw_rate": 0.0,
+    "glicko": 1419.66,
+    "neutral_venue_form": 0.5,
+    "rd": 91.0,
+    "sigma": 0.06,
+    "xg_rolling_3": 1.546
   }
 }

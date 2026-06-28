@@ -246,6 +246,18 @@ def _compute_betting_math(model_probs: dict,
 
 
 # ─── Main Inference Function ─────────────────────────────────────────────────
+def validate_feature_alignment(manifest_cols: list, constructed_vec: np.ndarray):
+    """
+    Crash early with a clear message if the live vector
+    doesn't match what the model was trained on.
+    """
+    if len(manifest_cols) != constructed_vec.shape[0]:
+        raise ValueError(
+            f"Feature mismatch: manifest has {len(manifest_cols)} features, "
+            f"inference constructed {constructed_vec.shape[0]}. "
+            f"Re-run train_test.py to regenerate manifest.json with correct columns."
+        )
+
 def run_inference(home_team: str, away_team: str,
                   venue_factor: float = 0.3, stage: str = "group",
                   home_odds: float = None, draw_odds: float = None,
@@ -259,6 +271,8 @@ def run_inference(home_team: str, away_team: str,
 
     # 2. Build feature vector
     X = _build_feature_vector(home_state, away_state, venue_factor, stage)
+    if X is not None:
+        validate_feature_alignment(_feature_cols, X)
 
     if X is None:
         return {
