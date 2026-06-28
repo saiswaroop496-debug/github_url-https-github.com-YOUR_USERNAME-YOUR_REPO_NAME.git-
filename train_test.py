@@ -117,340 +117,375 @@ def xg_to_probs(pred_h, pred_a):
 # =====================================================================
 # MAIN PIPELINE
 # =====================================================================
-print("=" * 70)
-print("  V5.1 QUANTITATIVE ENGINE â€” TRAIN & TEST REPORT")
-print("=" * 70)
 
-t_start = time.time()
+def main():
+    print("=" * 70)
+    print("  V5.1 QUANTITATIVE ENGINE â€” TRAIN & TEST REPORT")
+    print("=" * 70)
 
-# 1. DATA
-scraper = DataScraper()
-dc_df, form_df = scraper.fetch_fixtures()
-print(f"\n[DATA]  dc_df (2015+): {len(dc_df)} matches")
-print(f"[DATA]  form_df (2018+): {len(form_df)} matches")
+    t_start = time.time()
 
-# 2. FEATURES
-print("\n[FEATURES]  Computing rolling features â€¦")
-df = compute_rolling_features(form_df)
-print("[FEATURES]  Computing Glicko-2 ratings â€¦")
-glicko = Glicko2RatingSystem()
-df = glicko.compute_ratings(df)
+    # 1. DATA
+    scraper = DataScraper()
+    dc_df, form_df = scraper.fetch_fixtures()
+    print(f"\n[DATA]  dc_df (2015+): {len(dc_df)} matches")
+    print(f"[DATA]  form_df (2018+): {len(form_df)} matches")
 
-print("[FEATURES]  Computing V6 specific features â€¦")
-from features.rolling_features import compute_v6_features
-df = compute_v6_features(df)
+    # 2. FEATURES
+    print("\n[FEATURES]  Computing rolling features â€¦")
+    df = compute_rolling_features(form_df)
+    print("[FEATURES]  Computing Glicko-2 ratings â€¦")
+    glicko = Glicko2RatingSystem()
+    df = glicko.compute_ratings(df)
 
-# 3. FEATURE COLUMNS & TARGET
-FEATURE_COLS = [
-    'home_glicko', 'home_rd', 'away_glicko', 'away_rd',
-    'xg_supremacy', 'glicko_signal', 'draw_affinity',
-    'home_neutral_venue_form', 'away_neutral_venue_form',
-    'rest_differential',
-    'defensive_balance',
-    'stage_pressure',
-    'h2h_draw_rate',
-]
-available_cols = [c for c in FEATURE_COLS if c in df.columns]
-print(f"[FEATURES]  Using {len(available_cols)} features: {available_cols}")
+    print("[FEATURES]  Computing V6 specific features â€¦")
+    from features.rolling_features import compute_v6_features
+    df = compute_v6_features(df)
 
-df = df.dropna(subset=available_cols).reset_index(drop=True)
-print(f"[FEATURES]  {len(df)} matches after NaN drop")
+    # 3. FEATURE COLUMNS & TARGET
+    FEATURE_COLS = [
+        'home_glicko', 'home_rd', 'away_glicko', 'away_rd',
+        'xg_supremacy', 'glicko_signal', 'draw_affinity',
+        'home_neutral_venue_form', 'away_neutral_venue_form',
+        'rest_differential',
+        'defensive_balance',
+        'stage_pressure',
+        'h2h_draw_rate',
+    ]
+    available_cols = [c for c in FEATURE_COLS if c in df.columns]
+    print(f"[FEATURES]  Using {len(available_cols)} features: {available_cols}")
 
-# Regime filter: Exclude mismatch games (rating diff > 400)
-regime_mask = (df['home_glicko'] - df['away_glicko']).abs() < 400
-df = df[regime_mask].reset_index(drop=True)
-print(f"[REGIME]  {len(df)} matches after absolute rating diff < 400 filter")
+    df = df.dropna(subset=available_cols).reset_index(drop=True)
+    print(f"[FEATURES]  {len(df)} matches after NaN drop")
 
-X = df[available_cols].copy()
-y_home_goals = df['home_goals']
-y_away_goals = df['away_goals']
-y_outcome = np.where(df['home_goals'] > df['away_goals'], 0,
-            np.where(df['home_goals'] == df['away_goals'], 1, 2))
+    # Regime filter: Exclude mismatch games (rating diff > 400)
+    regime_mask = (df['home_glicko'] - df['away_glicko']).abs() < 400
+    df = df[regime_mask].reset_index(drop=True)
+    print(f"[REGIME]  {len(df)} matches after absolute rating diff < 400 filter")
 
-print(f"\n[TARGET]  Class distribution:")
-for cls, name in [(0, 'Home Win'), (1, 'Draw'), (2, 'Away Win')]:
-    print(f"          {name}:  {(y_outcome == cls).sum()} ({(y_outcome == cls).mean()*100:.1f}%)")
+    X = df[available_cols].copy()
+    y_home_goals = df['home_goals']
+    y_away_goals = df['away_goals']
+    y_outcome = np.where(df['home_goals'] > df['away_goals'], 0,
+                np.where(df['home_goals'] == df['away_goals'], 1, 2))
 
-# 4. DIXON-COLES (vectorized)
-print(f"\n[DC MODEL]  Fitting vectorized Dixon-Coles on {len(dc_df)} matches â€¦")
-dc_model = FastDixonColes()
-dc_model.fit(dc_df)
+    print(f"\n[TARGET]  Class distribution:")
+    for cls, name in [(0, 'Home Win'), (1, 'Draw'), (2, 'Away Win')]:
+        print(f"          {name}:  {(y_outcome == cls).sum()} ({(y_outcome == cls).mean()*100:.1f}%)")
 
-# DC probs for the form_df matches
-dc_probs = dc_model.predict_proba_batch(
-    df['home_team'].values, df['away_team'].values,
-    df['crowd_factor'].values if 'crowd_factor' in df.columns else None
-)
+    # 4. DIXON-COLES (vectorized)
+    print(f"\n[DC MODEL]  Fitting vectorized Dixon-Coles on {len(dc_df)} matches â€¦")
+    dc_model = FastDixonColes()
+    dc_model.fit(dc_df)
 
-# 5. WALK-FORWARD VALIDATION
-N_FOLDS = 5
-EMBARGO = 4
-n = len(X)
-fold_size = n // (N_FOLDS + 1)
+    # DC probs for the form_df matches
+    dc_probs = dc_model.predict_proba_batch(
+        df['home_team'].values, df['away_team'].values,
+        df['crowd_factor'].values if 'crowd_factor' in df.columns else None
+    )
 
-print(f"\n{'='*70}")
-print(f"  WALK-FORWARD VALIDATION  ({N_FOLDS} folds, embargo={EMBARGO})")
-print(f"  Total samples: {n}, fold_size: {fold_size}")
-print(f"{'='*70}")
+    # 5. WALK-FORWARD VALIDATION
+    N_FOLDS = 5
+    EMBARGO = 4
+    n = len(X)
+    fold_size = n // (N_FOLDS + 1)
 
-fold_results = []
-all_test_preds = np.zeros((n, 3))
-all_test_discrete_preds = np.zeros(n, dtype=int)
-all_test_mask = np.zeros(n, dtype=bool)
+    print(f"\n{'='*70}")
+    print(f"  WALK-FORWARD VALIDATION  ({N_FOLDS} folds, embargo={EMBARGO})")
+    print(f"  Total samples: {n}, fold_size: {fold_size}")
+    print(f"{'='*70}")
 
-def rank_probability_score(y_true_onehot, y_proba):
-    """
-    RPS for ordered outcomes: Away Win < Draw < Home Win.
-    Lower is better. Bookmaker baseline ~ 0.195.
-    """
-    cum_true  = np.cumsum(y_true_onehot,  axis=1)
-    cum_proba = np.cumsum(y_proba, axis=1)
-    return np.mean(np.sum((cum_proba - cum_true) ** 2, axis=1) / (y_proba.shape[1] - 1))
+    fold_results = []
+    all_test_preds = np.zeros((n, 3))
+    all_test_discrete_preds = np.zeros(n, dtype=int)
+    all_test_mask = np.zeros(n, dtype=bool)
 
-from models.base_learners import compute_match_weights
+    def rank_probability_score(y_true_onehot, y_proba):
+        """
+        RPS for ordered outcomes: Away Win < Draw < Home Win.
+        Lower is better. Bookmaker baseline ~ 0.195.
+        """
+        cum_true  = np.cumsum(y_true_onehot,  axis=1)
+        cum_proba = np.cumsum(y_proba, axis=1)
+        return np.mean(np.sum((cum_proba - cum_true) ** 2, axis=1) / (y_proba.shape[1] - 1))
 
-for fold_idx in range(N_FOLDS):
-    train_end = (fold_idx + 1) * fold_size
-    test_start = train_end + EMBARGO
-    test_end = min((fold_idx + 2) * fold_size, n)
-    if test_start >= n:
-        break
+    from models.base_learners import compute_match_weights
 
-    train_idx = np.arange(0, train_end)
-    test_idx = np.arange(test_start, test_end)
-    if len(test_idx) == 0:
-        break
+    for fold_idx in range(N_FOLDS):
+        train_end = (fold_idx + 1) * fold_size
+        test_start = train_end + EMBARGO
+        test_end = min((fold_idx + 2) * fold_size, n)
+        if test_start >= n:
+            break
+
+        train_idx = np.arange(0, train_end)
+        test_idx = np.arange(test_start, test_end)
+        if len(test_idx) == 0:
+            break
         
-    if len(train_idx) < 200:
-        print(f"\n  --- Fold {fold_idx+1} ---  Skipping (train_size={len(train_idx)} < 200)")
-        continue
+        if len(train_idx) < 200:
+            print(f"\n  --- Fold {fold_idx+1} ---  Skipping (train_size={len(train_idx)} < 200)")
+            continue
 
-    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-    y_tr_h = y_home_goals.iloc[train_idx]
-    y_tr_a = y_away_goals.iloc[train_idx]
-    y_test_out = y_outcome[test_idx]
-    y_train_out = y_outcome[train_idx]
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_tr_h = y_home_goals.iloc[train_idx]
+        y_tr_a = y_away_goals.iloc[train_idx]
+        y_test_out = y_outcome[test_idx]
+        y_train_out = y_outcome[train_idx]
     
-    dates_train = df['date'].iloc[train_idx]
-    w_train = compute_match_weights(dates_train)
+        dates_train = df['date'].iloc[train_idx]
+        w_train = compute_match_weights(dates_train)
 
-    print(f"\n  --- Fold {fold_idx+1} ---  train={len(train_idx)}, test={len(test_idx)}")
+        print(f"\n  --- Fold {fold_idx+1} ---  train={len(train_idx)}, test={len(test_idx)}")
 
-    # Base Learners
-    cat_h = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
-                               iterations=250, learning_rate=0.04, subsample=0.8,
-                               random_seed=42, verbose=0, thread_count=1)
-    xgb_h = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
-                          n_estimators=200, learning_rate=0.04, subsample=0.8,
-                          random_state=42, verbosity=0, n_jobs=1)
-    ridge_h = Ridge(alpha=15.0)
+        # Base Learners
+        cat_h = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
+                                   iterations=250, learning_rate=0.04, subsample=0.8,
+                                   random_seed=42, verbose=0, thread_count=1)
+        xgb_h = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
+                              n_estimators=200, learning_rate=0.04, subsample=0.8,
+                              random_state=42, verbosity=0, n_jobs=1)
+        ridge_h = Ridge(alpha=15.0)
 
-    cat_a = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
-                               iterations=250, learning_rate=0.04, subsample=0.8,
-                               random_seed=42, verbose=0, thread_count=1)
-    xgb_a = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
-                          n_estimators=200, learning_rate=0.04, subsample=0.8,
-                          random_state=42, verbosity=0, n_jobs=1)
-    ridge_a = Ridge(alpha=15.0)
+        cat_a = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
+                                   iterations=250, learning_rate=0.04, subsample=0.8,
+                                   random_seed=42, verbose=0, thread_count=1)
+        xgb_a = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
+                              n_estimators=200, learning_rate=0.04, subsample=0.8,
+                              random_state=42, verbosity=0, n_jobs=1)
+        ridge_a = Ridge(alpha=15.0)
 
-    cat_h.fit(X_train, y_tr_h, sample_weight=w_train)
-    xgb_h.fit(X_train, y_tr_h, sample_weight=w_train)
-    ridge_h.fit(X_train, y_tr_h, sample_weight=w_train)
+        cat_h.fit(X_train, y_tr_h, sample_weight=w_train)
+        xgb_h.fit(X_train, y_tr_h, sample_weight=w_train)
+        ridge_h.fit(X_train, y_tr_h, sample_weight=w_train)
     
-    cat_a.fit(X_train, y_tr_a, sample_weight=w_train)
-    xgb_a.fit(X_train, y_tr_a, sample_weight=w_train)
-    ridge_a.fit(X_train, y_tr_a, sample_weight=w_train)
+        cat_a.fit(X_train, y_tr_a, sample_weight=w_train)
+        xgb_a.fit(X_train, y_tr_a, sample_weight=w_train)
+        ridge_a.fit(X_train, y_tr_a, sample_weight=w_train)
 
-    # Test predictions
-    pred_h_test = np.clip((cat_h.predict(X_test) + xgb_h.predict(X_test) + ridge_h.predict(X_test)) / 3.0, 0.3, 4.0)
-    pred_a_test = np.clip((cat_a.predict(X_test) + xgb_a.predict(X_test) + ridge_a.predict(X_test)) / 3.0, 0.3, 4.0)
-    ml_probs_test = xg_to_probs(pred_h_test, pred_a_test)
+        # Test predictions
+        pred_h_test = np.clip((cat_h.predict(X_test) + xgb_h.predict(X_test) + ridge_h.predict(X_test)) / 3.0, 0.3, 4.0)
+        pred_a_test = np.clip((cat_a.predict(X_test) + xgb_a.predict(X_test) + ridge_a.predict(X_test)) / 3.0, 0.3, 4.0)
+        ml_probs_test = xg_to_probs(pred_h_test, pred_a_test)
 
-    # Train predictions (for meta-learner)
-    pred_h_tr = np.clip((cat_h.predict(X_train) + xgb_h.predict(X_train) + ridge_h.predict(X_train)) / 3.0, 0.3, 4.0)
-    pred_a_tr = np.clip((cat_a.predict(X_train) + xgb_a.predict(X_train) + ridge_a.predict(X_train)) / 3.0, 0.3, 4.0)
-    ml_probs_train = xg_to_probs(pred_h_tr, pred_a_tr)
+        # Train predictions (for meta-learner)
+        pred_h_tr = np.clip((cat_h.predict(X_train) + xgb_h.predict(X_train) + ridge_h.predict(X_train)) / 3.0, 0.3, 4.0)
+        pred_a_tr = np.clip((cat_a.predict(X_train) + xgb_a.predict(X_train) + ridge_a.predict(X_train)) / 3.0, 0.3, 4.0)
+        ml_probs_train = xg_to_probs(pred_h_tr, pred_a_tr)
 
-    # Blend with DC (50/50)
-    blended_test = 0.5 * ml_probs_test + 0.5 * dc_probs[test_idx]
-    blended_test /= blended_test.sum(axis=1, keepdims=True)
+        # Blend with DC (50/50)
+        blended_test = 0.5 * ml_probs_test + 0.5 * dc_probs[test_idx]
+        blended_test /= blended_test.sum(axis=1, keepdims=True)
 
-    blended_train = 0.5 * ml_probs_train + 0.5 * dc_probs[train_idx]
-    blended_train /= blended_train.sum(axis=1, keepdims=True)
+        blended_train = 0.5 * ml_probs_train + 0.5 * dc_probs[train_idx]
+        blended_train /= blended_train.sum(axis=1, keepdims=True)
 
-    # Meta-Learner with SMOTE and recalibration
-    from models.meta_learner import fit_meta_learner, predict_with_draw_threshold, recalibrate_draw_column
+        # Meta-Learner with SMOTE and recalibration
+        from models.meta_learner import fit_meta_learner, predict_with_draw_threshold, recalibrate_draw_column
     
-    meta_lr = fit_meta_learner(blended_train, y_train_out, classes=[0, 1, 2])
+        meta_lr = fit_meta_learner(blended_train, y_train_out, classes=[0, 1, 2])
     
-    final_probs = meta_lr.predict_proba(blended_test)
-    final_probs = recalibrate_draw_column(final_probs, y_test_out, draw_idx=1, ece_threshold=0.08)
+        final_probs = meta_lr.predict_proba(blended_test)
+        final_probs = recalibrate_draw_column(final_probs, y_test_out, draw_idx=1, ece_threshold=0.08)
     
-    final_probs = np.clip(final_probs, 0.05, 0.95)
-    final_probs /= final_probs.sum(axis=1, keepdims=True)
+        final_probs = np.clip(final_probs, 0.05, 0.95)
+        final_probs /= final_probs.sum(axis=1, keepdims=True)
 
-    # Metrics using custom threshold adapted for balanced class weights
-    draw_affinity_test = X_test['draw_affinity'].values if 'draw_affinity' in X_test.columns else None
-    preds, _ = predict_with_draw_threshold(
-        meta_lr, 
-        blended_test, 
-        classes=[0, 1, 2], 
-        draw_thresh=0.38, 
-        draw_affinity_arr=draw_affinity_test
-    )
-    acc = accuracy_score(y_test_out, preds)
-    ll = log_loss(y_test_out, final_probs, labels=[0, 1, 2])
+        # Metrics using custom threshold adapted for balanced class weights
+        draw_affinity_test = X_test['draw_affinity'].values if 'draw_affinity' in X_test.columns else None
+        preds, _ = predict_with_draw_threshold(
+            meta_lr, 
+            blended_test, 
+            classes=[0, 1, 2], 
+            draw_thresh=0.38, 
+            draw_affinity_arr=draw_affinity_test
+        )
+        acc = accuracy_score(y_test_out, preds)
+        ll = log_loss(y_test_out, final_probs, labels=[0, 1, 2])
     
-    brier = 0.0
-    for cls in range(3):
-        y_bin = (y_test_out == cls).astype(int)
-        brier += brier_score_loss(y_bin, final_probs[:, cls])
-    brier /= 3.0
+        brier = 0.0
+        for cls in range(3):
+            y_bin = (y_test_out == cls).astype(int)
+            brier += brier_score_loss(y_bin, final_probs[:, cls])
+        brier /= 3.0
 
-    ece_vals = []
-    for cls in range(3):
-        y_bin = (y_test_out == cls).astype(float)
-        ece_vals.append(expected_calibration_error(y_bin, final_probs[:, cls], n_bins=10))
-    ece = np.mean(ece_vals)
+        ece_vals = []
+        for cls in range(3):
+            y_bin = (y_test_out == cls).astype(float)
+            ece_vals.append(expected_calibration_error(y_bin, final_probs[:, cls], n_bins=10))
+        ece = np.mean(ece_vals)
 
-    y_test_onehot = np.eye(3)[y_test_out]
-    rps = rank_probability_score(y_test_onehot, final_probs)
+        y_test_onehot = np.eye(3)[y_test_out]
+        rps = rank_probability_score(y_test_onehot, final_probs)
     
-    all_test_preds[test_idx] = final_probs
-    all_test_discrete_preds[test_idx] = preds
-    all_test_mask[test_idx] = True
+        all_test_preds[test_idx] = final_probs
+        all_test_discrete_preds[test_idx] = preds
+        all_test_mask[test_idx] = True
 
-    fold_results.append({
-        'fold': fold_idx + 1, 'train_size': len(train_idx), 'test_size': len(test_idx),
-        'accuracy': acc, 'log_loss': ll, 'brier': brier, 'ece': ece, 'rps': rps
-    })
+        fold_results.append({
+            'fold': fold_idx + 1, 'train_size': len(train_idx), 'test_size': len(test_idx),
+            'accuracy': acc, 'log_loss': ll, 'brier': brier, 'ece': ece, 'rps': rps
+        })
 
-    print(f"    Accuracy:   {acc*100:.2f}%")
-    print(f"    Log-Loss:   {ll:.4f}")
-    print(f"    Brier:      {brier:.4f}")
-    print(f"    ECE:        {ece:.4f}")
-    print(f"    RPS:        {rps:.4f}")
+        print(f"    Accuracy:   {acc*100:.2f}%")
+        print(f"    Log-Loss:   {ll:.4f}")
+        print(f"    Brier:      {brier:.4f}")
+        print(f"    ECE:        {ece:.4f}")
+        print(f"    RPS:        {rps:.4f}")
 
-# =====================================================================
-# 6. AGGREGATE REPORT
-# =====================================================================
-print(f"\n{'='*70}")
-print(f"  AGGREGATE RESULTS  (Walk-Forward, {len(fold_results)} folds)")
-print(f"{'='*70}")
+    # =====================================================================
+    # 6. AGGREGATE REPORT
+    # =====================================================================
+    print(f"\n{'='*70}")
+    print(f"  AGGREGATE RESULTS  (Walk-Forward, {len(fold_results)} folds)")
+    print(f"{'='*70}")
 
-accs = [f['accuracy'] for f in fold_results]
-lls = [f['log_loss'] for f in fold_results]
-briers = [f['brier'] for f in fold_results]
-eces = [f['ece'] for f in fold_results]
-rpss = [f['rps'] for f in fold_results]
+    accs = [f['accuracy'] for f in fold_results]
+    lls = [f['log_loss'] for f in fold_results]
+    briers = [f['brier'] for f in fold_results]
+    eces = [f['ece'] for f in fold_results]
+    rpss = [f['rps'] for f in fold_results]
 
-print(f"\n  Accuracy:   {np.mean(accs)*100:.2f}% +/- {np.std(accs)*100:.2f}%")
-print(f"  Log-Loss:   {np.mean(lls):.4f} +/- {np.std(lls):.4f}")
-print(f"  Brier:      {np.mean(briers):.4f} +/- {np.std(briers):.4f}")
-print(f"  ECE:        {np.mean(eces):.4f} +/- {np.std(eces):.4f}")
-print(f"  RPS:        {np.mean(rpss):.4f} +/- {np.std(rpss):.4f}")
+    print(f"\n  Accuracy:   {np.mean(accs)*100:.2f}% +/- {np.std(accs)*100:.2f}%")
+    print(f"  Log-Loss:   {np.mean(lls):.4f} +/- {np.std(lls):.4f}")
+    print(f"  Brier:      {np.mean(briers):.4f} +/- {np.std(briers):.4f}")
+    print(f"  ECE:        {np.mean(eces):.4f} +/- {np.std(eces):.4f}")
+    print(f"  RPS:        {np.mean(rpss):.4f} +/- {np.std(rpss):.4f}")
 
-print(f"\n  [STABILITY]")
-print(f"    Fold accuracy range:  {min(accs)*100:.1f}% - {max(accs)*100:.1f}%")
-print(f"    Fold spread (max-min): {(max(accs)-min(accs))*100:.1f}pp")
-if np.std(accs) > 0.08:
-    print(f"    WARNING: Fold std > 8% - model may be unstable")
-else:
-    print(f"    OK: Fold std within acceptable range")
-if np.mean(eces) > 0.08:
-    print(f"    WARNING: Mean ECE > 0.08 - Kelly stakes may be overconfident")
-elif np.mean(eces) > 0.05:
-    print(f"    CAUTION: Mean ECE > 0.05 - monitor calibration drift")
-else:
-    print(f"    OK: Calibration within Kelly-safe threshold (ECE < 0.05)")
+    print(f"\n  [STABILITY]")
+    print(f"    Fold accuracy range:  {min(accs)*100:.1f}% - {max(accs)*100:.1f}%")
+    print(f"    Fold spread (max-min): {(max(accs)-min(accs))*100:.1f}pp")
+    if np.std(accs) > 0.08:
+        print(f"    WARNING: Fold std > 8% - model may be unstable")
+    else:
+        print(f"    OK: Fold std within acceptable range")
+    if np.mean(eces) > 0.08:
+        print(f"    WARNING: Mean ECE > 0.08 - Kelly stakes may be overconfident")
+    elif np.mean(eces) > 0.05:
+        print(f"    CAUTION: Mean ECE > 0.05 - monitor calibration drift")
+    else:
+        print(f"    OK: Calibration within Kelly-safe threshold (ECE < 0.05)")
 
-# Pooled classification report
-pooled_y = y_outcome[all_test_mask]
-pooled_preds = all_test_discrete_preds[all_test_mask]
+    # Pooled classification report
+    pooled_y = y_outcome[all_test_mask]
+    pooled_preds = all_test_discrete_preds[all_test_mask]
 
-print(f"\n{'='*70}")
-print(f"  POOLED CLASSIFICATION REPORT  (all test folds combined)")
-print(f"{'='*70}")
-label_names = ['Home Win', 'Draw', 'Away Win']
-print(classification_report(pooled_y, pooled_preds, target_names=label_names, digits=3))
+    print(f"\n{'='*70}")
+    print(f"  POOLED CLASSIFICATION REPORT  (all test folds combined)")
+    print(f"{'='*70}")
+    label_names = ['Home Win', 'Draw', 'Away Win']
+    print(classification_report(pooled_y, pooled_preds, target_names=label_names, digits=3))
 
-print("Confusion Matrix:")
-cm = confusion_matrix(pooled_y, pooled_preds, labels=[0, 1, 2])
-print(f"                  Predicted")
-print(f"                  HWin  Draw  AWin")
-for i, name in enumerate(label_names):
-    print(f"  Actual {name:>8s}  {cm[i][0]:>4d}  {cm[i][1]:>4d}  {cm[i][2]:>4d}")
+    print("Confusion Matrix:")
+    cm = confusion_matrix(pooled_y, pooled_preds, labels=[0, 1, 2])
+    print(f"                  Predicted")
+    print(f"                  HWin  Draw  AWin")
+    for i, name in enumerate(label_names):
+        print(f"  Actual {name:>8s}  {cm[i][0]:>4d}  {cm[i][1]:>4d}  {cm[i][2]:>4d}")
 
-# DC standalone
-print(f"\n{'='*70}")
-print(f"  DIXON-COLES STANDALONE")
-print(f"{'='*70}")
-dc_preds_class = dc_probs.argmax(axis=1)
-dc_acc = accuracy_score(y_outcome, dc_preds_class)
-dc_ll = log_loss(y_outcome, dc_probs, labels=[0, 1, 2])
-print(f"  Accuracy:   {dc_acc*100:.2f}%")
-print(f"  Log-Loss:   {dc_ll:.4f}")
+    # DC standalone
+    print(f"\n{'='*70}")
+    print(f"  DIXON-COLES STANDALONE")
+    print(f"{'='*70}")
+    dc_preds_class = dc_probs.argmax(axis=1)
+    dc_acc = accuracy_score(y_outcome, dc_preds_class)
+    dc_ll = log_loss(y_outcome, dc_probs, labels=[0, 1, 2])
+    print(f"  Accuracy:   {dc_acc*100:.2f}%")
+    print(f"  Log-Loss:   {dc_ll:.4f}")
 
-# Per-fold table
-print(f"\n{'='*70}")
-print(f"  PER-FOLD SUMMARY TABLE")
-print(f"{'='*70}")
-print(f"  {'Fold':>4s}  {'Train':>5s}  {'Test':>4s}  {'Acc%':>6s}  {'LogLoss':>7s}  {'Brier':>6s}  {'ECE':>6s}  {'RPS':>6s}")
-print(f"  {'---':>4s}  {'---':>5s}  {'---':>4s}  {'---':>6s}  {'---':>7s}  {'---':>6s}  {'---':>6s}  {'---':>6s}")
-for f in fold_results:
-    print(f"  {f['fold']:>4d}  {f['train_size']:>5d}  {f['test_size']:>4d}  "
-          f"{f['accuracy']*100:>5.1f}%  {f['log_loss']:>7.4f}  {f['brier']:>6.4f}  "
-          f"{f['ece']:>6.4f}  {f['rps']:>6.4f}")
+    # Per-fold table
+    print(f"\n{'='*70}")
+    print(f"  PER-FOLD SUMMARY TABLE")
+    print(f"{'='*70}")
+    print(f"  {'Fold':>4s}  {'Train':>5s}  {'Test':>4s}  {'Acc%':>6s}  {'LogLoss':>7s}  {'Brier':>6s}  {'ECE':>6s}  {'RPS':>6s}")
+    print(f"  {'---':>4s}  {'---':>5s}  {'---':>4s}  {'---':>6s}  {'---':>7s}  {'---':>6s}  {'---':>6s}  {'---':>6s}")
+    for f in fold_results:
+        print(f"  {f['fold']:>4d}  {f['train_size']:>5d}  {f['test_size']:>4d}  "
+              f"{f['accuracy']*100:>5.1f}%  {f['log_loss']:>7.4f}  {f['brier']:>6.4f}  "
+              f"{f['ece']:>6.4f}  {f['rps']:>6.4f}")
 
-# Baselines
-print(f"\n{'='*70}")
-print(f"  BASELINE COMPARISONS")
-print(f"{'='*70}")
-prior = np.bincount(y_outcome, minlength=3) / len(y_outcome)
-random_ll = log_loss(y_outcome, np.tile(prior, (len(y_outcome), 1)), labels=[0, 1, 2])
-random_acc = prior.max()
-print(f"  Class-Prior Baseline:  Acc = {random_acc*100:.1f}%,  Log-Loss = {random_ll:.4f}")
-print(f"  Dixon-Coles:           Acc = {dc_acc*100:.1f}%,  Log-Loss = {dc_ll:.4f}")
-print(f"  V5.1 Ensemble (WF):    Acc = {np.mean(accs)*100:.1f}%,  Log-Loss = {np.mean(lls):.4f}")
+    # Baselines
+    print(f"\n{'='*70}")
+    print(f"  BASELINE COMPARISONS")
+    print(f"{'='*70}")
+    prior = np.bincount(y_outcome, minlength=3) / len(y_outcome)
+    random_ll = log_loss(y_outcome, np.tile(prior, (len(y_outcome), 1)), labels=[0, 1, 2])
+    random_acc = prior.max()
+    print(f"  Class-Prior Baseline:  Acc = {random_acc*100:.1f}%,  Log-Loss = {random_ll:.4f}")
+    print(f"  Dixon-Coles:           Acc = {dc_acc*100:.1f}%,  Log-Loss = {dc_ll:.4f}")
+    print(f"  V5.1 Ensemble (WF):    Acc = {np.mean(accs)*100:.1f}%,  Log-Loss = {np.mean(lls):.4f}")
 
-improvement = (np.mean(accs) - random_acc) / random_acc * 100
-print(f"\n  V5.1 vs Baseline:  {improvement:+.1f}% relative accuracy improvement")
+    improvement = (np.mean(accs) - random_acc) / random_acc * 100
+    print(f"\n  V5.1 vs Baseline:  {improvement:+.1f}% relative accuracy improvement")
 
-elapsed = time.time() - t_start
-print(f"\n{'='*70}")
-print(f"  COMPLETED IN {elapsed:.1f}s")
-print(f"{'='*70}")
+    elapsed = time.time() - t_start
+    print(f"\n{'='*70}")
+    print(f"  COMPLETED IN {elapsed:.1f}s")
+    print(f"{'='*70}")
 
-# â”€â”€ AUTO-DEPLOY (add at bottom of train_test.py) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-from auto_deploy import deploy
-import os
-import sys
+    # â”€â”€ AUTO-DEPLOY (add at bottom of train_test.py) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    from auto_deploy import deploy
+    import os
+    import sys
 
-# Populate this from your actual walk-forward output
-deployment_metrics = {
-    "accuracy":    np.mean(accs),
-    "log_loss":    np.mean(lls),
-    "brier":       np.mean(briers),
-    "ece":         np.mean(eces),
-    "fold_std":    np.std(accs),
-    "draw_recall": float(cm[1][1]) / float(cm[1].sum()) if cm[1].sum() > 0 else 0.0,
-    "n_matches":   len(df),
-}
+    # Populate this from your actual walk-forward output
+    deployment_metrics = {
+        "accuracy":    np.mean(accs),
+        "log_loss":    np.mean(lls),
+        "brier":       np.mean(briers),
+        "ece":         np.mean(eces),
+        "fold_std":    np.std(accs),
+        "draw_recall": float(cm[1][1]) / float(cm[1].sum()) if cm[1].sum() > 0 else 0.0,
+        "n_matches":   len(df),
+    }
 
-if "--auto-deploy=false" not in sys.argv:
-    deploy(
-        metrics=deployment_metrics,
-        github_url="https://github.com/saiswaroop496-debug/github_url-https-github.com-YOUR_USERNAME-YOUR_REPO_NAME.git-",
-        api_key=os.getenv("RAPIDAPI_KEY", ""),   # reads from your .env
-        version_tag="V6.0",
-    )
-else:
-    print("Skipping deployment due to --auto-deploy=false flag.")
+    if "--auto-deploy=false" not in sys.argv:
+        deploy(
+            metrics=deployment_metrics,
+            github_url="https://github.com/saiswaroop496-debug/github_url-https-github.com-YOUR_USERNAME-YOUR_REPO_NAME.git-",
+            api_key=os.getenv("RAPIDAPI_KEY", ""),   # reads from your .env
+            version_tag="V6.0",
+        )
+    else:
+        print("Skipping deployment due to --auto-deploy=false flag.")
 
-# model_versions/export.py  — or add inline to train_test.py
+    # model_versions/export.py  — or add inline to train_test.py
 
-import joblib
-import json
+    import joblib
+    import json
+
+    # --- Export logic ---
+    try:
+        base_learners = [cat_h, cat_a, xgb_h, xgb_a, ridge_h, ridge_a]
+        build_dir, is_promoted = export_model(base_learners, None, meta_lr, FEATURE_COLS, deployment_metrics)
+    
+        # Save dc_params to build dir
+        dc_params = {
+            "attack": dc_model.attack,
+            "defense": dc_model.defense,
+            "home_adv": dc_model.home_adv,
+            "rho": dc_model.rho
+        }
+        joblib.dump(dc_params, build_dir / "dc_params.joblib")
+    
+        # Symlink latest promoted model
+        latest_dir = MODEL_VERSIONS_DIR / "latest"
+        if is_promoted:
+            import shutil
+            if latest_dir.exists():
+                shutil.rmtree(latest_dir)
+            shutil.copytree(build_dir, latest_dir)
+            print(f"  ✅ Promoted ➔ model_versions/latest ➔ {build_dir.name}")
+        
+            export_team_states(df, glicko.ratings, form_df, output_path=latest_dir / "team_states.json")
+        else:
+            print(f"  ❌  Model archived but not promoted (gate failed): {build_dir.name}")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"Model export failed: {e}")
+
+# --- Function Definitions ---
 import hashlib
 from pathlib import Path
 
@@ -524,32 +559,6 @@ def export_team_states(df: pd.DataFrame, glicko_ratings: dict,
     print(f"  ✅ Team states exported: {output_path} ({len(states)} teams)")
 
 # Export the trained model and meta learner
-try:
-    base_learners = [cat_h, cat_a, xgb_h, xgb_a, ridge_h, ridge_a]
-    build_dir, is_promoted = export_model(base_learners, None, meta_lr, FEATURE_COLS, deployment_metrics)
-    
-    # Save dc_params to build dir
-    dc_params = {
-        "attack": dc_model.attack,
-        "defense": dc_model.defense,
-        "home_adv": dc_model.home_adv,
-        "rho": dc_model.rho
-    }
-    joblib.dump(dc_params, build_dir / "dc_params.joblib")
-    
-    # Symlink latest promoted model
-    latest_dir = MODEL_VERSIONS_DIR / "latest"
-    if is_promoted:
-        import shutil
-        if latest_dir.exists():
-            shutil.rmtree(latest_dir)
-        shutil.copytree(build_dir, latest_dir)
-        print(f"  ✅ Promoted ➔ model_versions/latest ➔ {build_dir.name}")
-        
-        export_team_states(df, glicko.ratings, form_df, output_path=latest_dir / "team_states.json")
-    else:
-        print(f"  ❌  Model archived but not promoted (gate failed): {build_dir.name}")
-except Exception as e:
-    import traceback
-    traceback.print_exc()
-    print(f"Model export failed: {e}")
+
+if __name__ == '__main__':
+    main()
