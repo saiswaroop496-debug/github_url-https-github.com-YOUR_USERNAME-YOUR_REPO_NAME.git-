@@ -30,7 +30,11 @@ def balance_oof_for_meta(X_oof: np.ndarray, y_oof: np.ndarray):
         return X_oof, y_oof
 
     k = min(3, min_class_count - 1)
-    smote = SMOTE(k_neighbors=k, random_state=42)
+    smote = SMOTE(
+        k_neighbors=k,
+        sampling_strategy=0.6,
+        random_state=42
+    )
     X_res, y_res = smote.fit_resample(X_oof, y_oof)
     
     draw_original = ((y_oof == 'Draw') | (y_oof == 1)).sum()
@@ -106,18 +110,25 @@ def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray, classes: list):
     return calibrated
 
 
-def predict_with_draw_threshold(model, X: np.ndarray, classes: list,
-                                  draw_thresh: float = 0.34):
+def predict_with_draw_threshold(model, X_proba: np.ndarray, classes: list,
+                                  draw_thresh: float = 0.38,
+                                  draw_affinity_floor: float = 0.45,
+                                  draw_affinity_arr=None):
     """
-    Predict with draw override gate at calibrated threshold.
-    draw_thresh=0.34 tuned for class_weight='balanced' output distribution.
+    Dual-gate draw prediction:
+    1. Model probability must exceed draw_thresh
+    2. draw_affinity feature must exceed floor (confirms tight match)
     """
-    proba = model.predict_proba(X)
+    proba = model.predict_proba(X_proba)
     class_list = list(classes)
     draw_idx = class_list.index('Draw') if 'Draw' in class_list else class_list.index(1)
+
     preds = []
-    for p in proba:
-        if p[draw_idx] >= draw_thresh:
+    for i, p in enumerate(proba):
+        prob_gate = p[draw_idx] >= draw_thresh
+        affinity_gate = (draw_affinity_arr is None or
+                         draw_affinity_arr[i] >= draw_affinity_floor)
+        if prob_gate and affinity_gate:
             preds.append(class_list[draw_idx])
         else:
             preds.append(class_list[np.argmax(p)])

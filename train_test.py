@@ -290,7 +290,14 @@ for fold_idx in range(N_FOLDS):
     final_probs /= final_probs.sum(axis=1, keepdims=True)
 
     # Metrics using custom threshold adapted for balanced class weights
-    preds, _ = predict_with_draw_threshold(meta_lr, blended_test, classes=[0, 1, 2], draw_thresh=0.34)
+    draw_affinity_test = X_test['draw_affinity'].values if 'draw_affinity' in X_test.columns else None
+    preds, _ = predict_with_draw_threshold(
+        meta_lr, 
+        blended_test, 
+        classes=[0, 1, 2], 
+        draw_thresh=0.38, 
+        draw_affinity_arr=draw_affinity_test
+    )
     acc = accuracy_score(y_test_out, preds)
     ll = log_loss(y_test_out, final_probs, labels=[0, 1, 2])
     
