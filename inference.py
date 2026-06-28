@@ -16,11 +16,20 @@ load_dotenv()
 # The saved CalibratedClassifierCV wraps an imblearn Pipeline containing
 # SafeSMOTE (defined in models.meta_learner). Pickle needs these in the
 # module namespace BEFORE joblib.load() is called.
+import sys
 try:
     from imblearn.pipeline import Pipeline as _ImbPipeline  # noqa: F401
     from models.meta_learner import SafeSMOTE as _SafeSMOTE  # noqa: F401
 except ImportError as _e:
-    warnings.warn(f"Could not pre-import pipeline classes for deserialization: {_e}")
+    warnings.warn(f"imbalanced-learn not installed on cloud. Using sklearn Pipeline mock for deserialization: {_e}")
+    # Inject a mock so joblib.load() can successfully unpickle the object
+    import types
+    from sklearn.pipeline import Pipeline
+    imb_pipe = types.ModuleType('imblearn.pipeline')
+    imb_pipe.Pipeline = Pipeline
+    sys.modules['imblearn.pipeline'] = imb_pipe
+    
+    from models.meta_learner import SafeSMOTE as _SafeSMOTE  # This will succeed now
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 MODEL_DIR   = Path("model_versions/latest")
