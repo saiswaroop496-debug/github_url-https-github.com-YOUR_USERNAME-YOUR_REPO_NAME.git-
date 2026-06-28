@@ -108,8 +108,8 @@ def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray, classes: list):
     )
     lr.fit(X_train_bal, y_train_bal)
 
-    calibrated = CalibratedClassifierCV(lr, cv='prefit', method='sigmoid')
-    calibrated.fit(X_cal, y_cal)
+    calibrated = CalibratedClassifierCV(lr, cv=3, method='sigmoid')
+    calibrated.fit(oof_preds, y_oof)
 
     return calibrated
 

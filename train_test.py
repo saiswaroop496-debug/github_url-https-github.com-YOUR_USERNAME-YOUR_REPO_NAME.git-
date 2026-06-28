@@ -5,6 +5,7 @@ OPTIMIZED VERSION: Vectorized Dixon-Coles, fast walk-forward.
 """
 
 import sys, os, time, warnings
+import joblib
 warnings.filterwarnings('ignore')
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, '.')
@@ -475,11 +476,11 @@ def main():
             if latest_dir.exists():
                 shutil.rmtree(latest_dir)
             shutil.copytree(build_dir, latest_dir)
-            print(f"  ✅ Promoted ➔ model_versions/latest ➔ {build_dir.name}")
+            print(f"  [OK] Promoted ➔ model_versions/latest ➔ {build_dir.name}")
         
             export_team_states(df, glicko.ratings, form_df, output_path=latest_dir / "team_states.json")
         else:
-            print(f"  ❌  Model archived but not promoted (gate failed): {build_dir.name}")
+            print(f"  [FAIL]  Model archived but not promoted (gate failed): {build_dir.name}")
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -523,8 +524,8 @@ def export_model(model, scaler, meta_learner, feature_cols: list,
             "draw_recall": metrics.get("draw_recall"),
             "fold_std":    metrics.get("fold_std"),
         },
-        "promoted":     metrics.get("accuracy", 0) >= 44.0 and
-                        metrics.get("log_loss", 99) <= 1.10
+        "promoted":     bool(metrics.get("accuracy", 0) >= 44.0 and
+                             metrics.get("log_loss", 99) <= 1.10)
     }
 
     with open(build_dir / "manifest.json", 'w') as f:
@@ -556,7 +557,7 @@ def export_team_states(df: pd.DataFrame, glicko_ratings: dict,
 
     with open(output_path, 'w') as f:
         json.dump(states, f, indent=2)
-    print(f"  ✅ Team states exported: {output_path} ({len(states)} teams)")
+    print(f"  [OK] Team states exported: {output_path} ({len(states)} teams)")
 
 # Export the trained model and meta learner
 
