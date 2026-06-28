@@ -82,7 +82,7 @@ def write_streamlit_secrets(api_key: str, repo_dir: Path):
 def save_model_metadata(metrics: dict, repo_dir: Path):
     """
     Save latest validation metrics as model_card.json.
-    This file IS committed — Streamlit app reads it to display live stats.
+    This file IS committed  Streamlit app reads it to display live stats.
     """
     card = {
         "version": "V6.0",
@@ -116,14 +116,14 @@ def set_remote(github_url: str):
 def commit_and_push(github_url: str, version_tag: str = "V6.0"):
     """Stage all changes, commit with auto-timestamp, push to main."""
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-    commit_msg = f"[auto] {version_tag} model update — {timestamp}"
+    commit_msg = f"[auto] {version_tag} model update  {timestamp}"
 
     run("git add .")
 
     # Check if there's anything to commit
     result = run("git diff --cached --quiet", check=False)
     if result.returncode == 0:
-        print("  [INFO] Nothing new to commit — model unchanged since last push")
+        print("  [INFO] Nothing new to commit  model unchanged since last push")
         return False
 
     run(f'git commit -m "{commit_msg}"')
@@ -201,16 +201,16 @@ def deploy(
 
 def _print_auth_help(github_url: str):
     print("""
-  ── GitHub Auth Setup (one-time only) ───────────────────
-  Option A — Personal Access Token (recommended):
-    1. Go to GitHub → Settings → Developer Settings
-       → Personal Access Tokens → Tokens (classic) → Generate
+   GitHub Auth Setup (one-time only) 
+  Option A  Personal Access Token (recommended):
+    1. Go to GitHub  Settings  Developer Settings
+        Personal Access Tokens  Tokens (classic)  Generate
     2. Select scope: repo (full control)
     3. Copy the token
     4. Run:  git credential-manager configure
-       Then push once manually — Windows will prompt for token
+       Then push once manually  Windows will prompt for token
 
-  Option B — SSH Key:
+  Option B  SSH Key:
     1. Run: ssh-keygen -t ed25519 -C "your@email.com"
     2. Add ~/.ssh/id_ed25519.pub to GitHub SSH keys
     3. Change remote URL:

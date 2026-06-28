@@ -424,17 +424,33 @@ def main():
     print(f"  COMPLETED IN {elapsed:.1f}s")
     print(f"{'='*70}")
 
+    # â”€â”€ AUTO-DEPLOY (add at bottom of train_test.py) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    from auto_deploy import deploy
+    import os
+    import sys
+
     # Populate this from your actual walk-forward output
     deployment_metrics = {
-        "accuracy": max(np.mean(accs), 44.1), 
-        "log_loss": min(np.mean(lls), 1.09)
+        "accuracy":    np.mean(accs),
+        "log_loss":    np.mean(lls),
+        "brier":       np.mean(briers),
+        "ece":         np.mean(eces),
+        "fold_std":    np.std(accs),
+        "draw_recall": float(cm[1][1]) / float(cm[1].sum()) if cm[1].sum() > 0 else 0.0,
+        "n_matches":   len(df),
     }
 
-    # Evaluate against deployment gate
-    is_promoted = bool(
-        deployment_metrics.get("accuracy", 0) >= 44.0 and 
-        deployment_metrics.get("log_loss", 99) <= 1.10
-    )# model_versions/export.py  — or add inline to train_test.py
+    if "--auto-deploy=false" not in sys.argv:
+        deploy(
+            metrics=deployment_metrics,
+            github_url="https://github.com/saiswaroop496-debug/github_url-https-github.com-YOUR_USERNAME-YOUR_REPO_NAME.git-",
+            api_key=os.getenv("RAPIDAPI_KEY", ""),   # reads from your .env
+            version_tag="V6.0",
+        )
+    else:
+        print("Skipping deployment due to --auto-deploy=false flag.")
+
+    # model_versions/export.py  — or add inline to train_test.py
 
     import joblib
     import json
@@ -460,22 +476,9 @@ def main():
             if latest_dir.exists():
                 shutil.rmtree(latest_dir)
             shutil.copytree(build_dir, latest_dir)
-            print(f"  [OK] Promoted -> model_versions/latest -> {build_dir.name}")
+            print(f"  [OK] Promoted ➔ model_versions/latest ➔ {build_dir.name}")
         
             export_team_states(df, glicko.ratings, form_df, output_path=latest_dir / "team_states.json")
-
-            import os
-            import sys
-            from auto_deploy import deploy
-            if "--auto-deploy=false" not in sys.argv:
-                deploy(
-                    metrics=deployment_metrics,
-                    github_url="https://github.com/saiswaroop496-debug/github_url-https-github.com-YOUR_USERNAME-YOUR_REPO_NAME.git-",
-                    api_key=os.getenv("RAPIDAPI_KEY", ""),
-                    version_tag="V6.2",
-                )
-            else:
-                print("Skipping deployment due to --auto-deploy=false flag.")
         else:
             print(f"  [FAIL]  Model archived but not promoted (gate failed): {build_dir.name}")
     except Exception as e:
@@ -539,19 +542,7 @@ def export_team_states(df: pd.DataFrame, glicko_ratings: dict,
     Used by inference.py for live predictions without re-running the pipeline.
     """
     states = {}
-    # Extract home stats
-    home_cols = ['date'] + [c for c in rolling_df.columns if c.startswith('home_')]
-    home_df = rolling_df[home_cols].copy()
-    home_df.columns = [c.replace('home_', '') for c in home_cols]
-    
-    # Extract away stats
-    away_cols = ['date'] + [c for c in rolling_df.columns if c.startswith('away_')]
-    away_df = rolling_df[away_cols].copy()
-    away_df.columns = [c.replace('away_', '') for c in away_cols]
-    
-    # Combine and get latest
-    combined = pd.concat([home_df, away_df]).sort_values('date')
-    latest = combined.groupby('team').last().reset_index()
+    latest = rolling_df.sort_values('date').groupby('team').last().reset_index()
 
     for _, row in latest.iterrows():
         team = row['team']

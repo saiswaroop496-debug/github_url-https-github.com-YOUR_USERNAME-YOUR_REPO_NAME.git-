@@ -1,0 +1,338 @@
+{
+  "Algeria": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "Argentina": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "Australia": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-25 00:00:00"
+  },
+  "Austria": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "Belgium": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "Bosnia and Herzegovina": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "Brazil": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "Canada": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "Cape Verde": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "Colombia": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "Congo DR": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "Croatia": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "Czech Republic": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "DR Congo": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "Ecuador": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-25 00:00:00"
+  },
+  "Egypt": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "England": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "France": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "Germany": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-25 00:00:00"
+  },
+  "Ghana": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "Haiti": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "Iran": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "Iraq": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "Ivory Coast": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-20 00:00:00"
+  },
+  "Japan": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-25 00:00:00"
+  },
+  "Jordan": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "Mexico": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "Morocco": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "Netherlands": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-25 00:00:00"
+  },
+  "New Zealand": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "Norway": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "Panama": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "Paraguay": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-25 00:00:00"
+  },
+  "Portugal": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  },
+  "Qatar": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "Saudi Arabia": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "Scotland": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "Senegal": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "South Africa": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "South Korea": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "Spain": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "Sweden": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-25 00:00:00"
+  },
+  "Switzerland": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-24 00:00:00"
+  },
+  "Tunisia": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-25 00:00:00"
+  },
+  "Turkey": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-19 00:00:00"
+  },
+  "United States": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-11 00:00:00"
+  },
+  "Uruguay": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-26 00:00:00"
+  },
+  "Uzbekistan": {
+    "glicko": 1500.0,
+    "rd": 200.0,
+    "xg_rolling_3": 1.2,
+    "neutral_venue_form": 1.2,
+    "last_match_date": "2026-06-27 00:00:00"
+  }
+}

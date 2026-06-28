@@ -1,0 +1,29 @@
+{
+  "version": "6.2",
+  "build": "v6.2_20260628_205239_edfe0c8e",
+  "timestamp": "20260628_205239",
+  "feature_cols": [
+    "home_glicko",
+    "home_rd",
+    "away_glicko",
+    "away_rd",
+    "xg_supremacy",
+    "glicko_signal",
+    "draw_affinity",
+    "home_neutral_venue_form",
+    "away_neutral_venue_form",
+    "rest_differential",
+    "defensive_balance",
+    "stage_pressure",
+    "h2h_draw_rate"
+  ],
+  "metrics": {
+    "accuracy": 0.4340277777777778,
+    "log_loss": 1.081493455812953,
+    "brier_score": null,
+    "ece": 0.10680028283711412,
+    "draw_recall": null,
+    "fold_std": null
+  },
+  "promoted": false
+}

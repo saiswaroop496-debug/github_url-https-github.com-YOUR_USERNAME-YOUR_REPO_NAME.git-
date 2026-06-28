@@ -31,7 +31,7 @@ def balance_oof_for_meta(X_oof: np.ndarray, y_oof: np.ndarray):
 
     k = min(3, min_class_count - 1)
     majority_count = max(class_counts.values())
-    target_count = int(majority_count * 0.6)
+    target_count = int(majority_count * 0.85)
     strategy = {c: max(count, target_count) for c, count in class_counts.items()}
     
     smote = SMOTE(
@@ -81,6 +81,18 @@ def recalibrate_draw_column(proba: np.ndarray, y_true: np.ndarray,
 
 
 # --- Meta-Learner Fit ---------------------------------------------------------
+from imblearn.pipeline import Pipeline
+
+class SafeSMOTE:
+    def __init__(self, random_state=42):
+        self.random_state = random_state
+    
+    def fit(self, X, y):
+        return self
+        
+    def fit_resample(self, X, y):
+        return balance_oof_for_meta(X, y)
+
 def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray, classes: list):
     """
     Full meta-learner training pipeline:
@@ -89,26 +101,26 @@ def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray, classes: list):
     3. Platt calibration on held-out chronological slice
     4. Draw column recalibration if ECE > 0.08
     """
-    n = len(y_oof)
-    cal_split = int(n * 0.85)
-
-    X_train, y_train = oof_preds[:cal_split], y_oof[:cal_split]
-    X_cal, y_cal     = oof_preds[cal_split:], y_oof[cal_split:]
-
-    # Apply SMOTE only to training split
-    X_train_bal, y_train_bal = balance_oof_for_meta(X_train, y_train)
-
     lr = LogisticRegression(
-        C=0.5,
-        class_weight='balanced',
+        C=0.1,
+        class_weight=None,
         multi_class='multinomial',
         solver='lbfgs',
         max_iter=1000,
         random_state=42
     )
-    lr.fit(X_train_bal, y_train_bal)
 
-    calibrated = CalibratedClassifierCV(lr, cv=3, method='sigmoid')
+    pipeline = Pipeline([
+        ('smote', SafeSMOTE(random_state=42)),
+        ('lr', lr)
+    ])
+
+    pipeline = Pipeline([
+        ('smote', SafeSMOTE(random_state=42)),
+        ('lr', lr)
+    ])
+
+    calibrated = CalibratedClassifierCV(pipeline, cv=3, method='sigmoid')
     calibrated.fit(oof_preds, y_oof)
 
     return calibrated
@@ -128,6 +140,9 @@ def predict_with_draw_threshold(model, X_proba: np.ndarray, classes: list,
     draw_idx = class_list.index('Draw') if 'Draw' in class_list else class_list.index(1)
 
     preds = []
+    home_idx = class_list.index('Home') if 'Home' in class_list else class_list.index(0)
+    away_idx = class_list.index('Away') if 'Away' in class_list else class_list.index(2)
+
     for i, p in enumerate(proba):
         prob_gate = p[draw_idx] >= draw_thresh
         affinity_gate = (draw_affinity_arr is None or
@@ -135,7 +150,11 @@ def predict_with_draw_threshold(model, X_proba: np.ndarray, classes: list,
         if prob_gate and affinity_gate:
             preds.append(class_list[draw_idx])
         else:
-            preds.append(class_list[np.argmax(p)])
+            # Force Home or Away based on which has higher probability
+            if p[home_idx] > p[away_idx]:
+                preds.append(class_list[home_idx])
+            else:
+                preds.append(class_list[away_idx])
     return np.array(preds), proba
 
 
