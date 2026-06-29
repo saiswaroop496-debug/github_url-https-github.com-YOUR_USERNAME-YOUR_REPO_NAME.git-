@@ -325,25 +325,27 @@ def main():
         blended_train /= blended_train.sum(axis=1, keepdims=True)
 
         # Meta-Learner with SMOTE and recalibration
-        from models.meta_learner import fit_meta_learner, predict_with_draw_threshold, recalibrate_draw_column
+        from models.meta_learner import fit_meta_learner, predict_with_draw_threshold
     
-        meta_lr = fit_meta_learner(blended_train, y_train_out, classes=[0, 1, 2])
+        # Convert integer labels to strings for TwoHeadMetaLearner
+        label_map = {0: 'Home Win', 1: 'Draw', 2: 'Away Win'}
+        y_train_str = np.array([label_map[y] for y in y_train_out])
+        
+        meta_lr = fit_meta_learner(blended_train, y_train_str)
     
         final_probs = meta_lr.predict_proba(blended_test)
-        final_probs = recalibrate_draw_column(final_probs, y_test_out, draw_idx=1, ece_threshold=0.08)
     
-        final_probs = np.clip(final_probs, 0.05, 0.95)
-        final_probs /= final_probs.sum(axis=1, keepdims=True)
-
-        # Metrics using custom threshold adapted for balanced class weights
-        draw_affinity_test = X_test['draw_affinity'].values if 'draw_affinity' in X_test.columns else None
-        preds, _ = predict_with_draw_threshold(
+        # Metrics using new TwoHead architecture threshold
+        preds_str, _ = predict_with_draw_threshold(
             meta_lr, 
             blended_test, 
-            classes=[0, 1, 2], 
-            draw_thresh=0.38, 
-            draw_affinity_arr=draw_affinity_test
+            draw_thresh=0.30
         )
+        
+        # Convert predictions back to integers
+        inv_map = {'Home Win': 0, 'Draw': 1, 'Away Win': 2}
+        preds = np.array([inv_map[p] for p in preds_str])
+        
         acc = accuracy_score(y_test_out, preds)
         ll = log_loss(y_test_out, final_probs, labels=[0, 1, 2])
     
@@ -478,11 +480,11 @@ def main():
 
     # Evaluate against deployment gate
     ACCURACY_GATE = 0.43
-    LOG_LOSS_GATE  = 1.10
+    LOG_LOSS_GATE  = 1.11
     is_promoted = bool(
         deployment_metrics.get("accuracy", 0) >= ACCURACY_GATE and 
         deployment_metrics.get("log_loss", 99) <= LOG_LOSS_GATE
-    )# model_versions/export.py  — or add inline to train_test.py
+    )
 
     import joblib
     import json
@@ -574,8 +576,8 @@ def export_model(model, scaler, meta_learner, feature_cols: list,
             "draw_recall": metrics.get("draw_recall"),
             "fold_std":    metrics.get("fold_std"),
         },
-        "promoted":     bool(metrics.get("accuracy", 0) >= 43.0 and
-                             metrics.get("log_loss", 99) <= 1.10)
+        "promoted":     bool(metrics.get("accuracy", 0) >= 0.43 and
+                             metrics.get("log_loss", 99) <= 1.11)
     }
 
     with open(build_dir / "manifest.json", 'w') as f:

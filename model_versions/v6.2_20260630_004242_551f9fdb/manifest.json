@@ -1,7 +1,7 @@
 {
   "version": "6.2",
-  "build": "v6.2_20260630_005543_d83377e1",
-  "timestamp": "20260630_005543",
+  "build": "v6.2_20260630_004242_551f9fdb",
+  "timestamp": "20260630_004242",
   "feature_cols": [
     "home_glicko",
     "home_rd",
@@ -28,5 +28,5 @@
     "draw_recall": null,
     "fold_std": null
   },
-  "promoted": true
+  "promoted": false
 }

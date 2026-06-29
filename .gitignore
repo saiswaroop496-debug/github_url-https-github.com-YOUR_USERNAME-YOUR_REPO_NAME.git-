@@ -13,3 +13,5 @@ catboost_info/
 *.pyc
 *.log
 .DS_Store
+
+.streamlit/secrets.toml

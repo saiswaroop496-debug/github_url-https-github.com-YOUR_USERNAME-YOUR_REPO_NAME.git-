@@ -25,18 +25,21 @@ def fit_attack_defense(home_teams, away_teams, home_goals, away_goals,
     else:
         W = time_weights if time_weights is not None else np.ones(len(home_goals))
 
+    # Pre-map teams to indices to avoid doing it inside the objective function
+    hi = np.array([team_idx[t] for t in home_teams])
+    ai = np.array([team_idx[t] for t in away_teams])
+
     def neg_log_likelihood(params):
         attack  = params[:n_teams]
         defense = params[n_teams:2*n_teams]
         home_adv = params[2*n_teams]
 
-        ll = 0.0
-        for i, (ht, at, gh, ga) in enumerate(zip(home_teams, away_teams,
-                                                   home_goals, away_goals)):
-            hi, ai = team_idx[ht], team_idx[at]
-            lam_h = np.exp(attack[hi] - defense[ai] + home_adv)
-            lam_a = np.exp(attack[ai] - defense[hi])
-            ll += W[i] * (poisson.logpmf(gh, lam_h) + poisson.logpmf(ga, lam_a))
+        lam_h = np.exp(attack[hi] - defense[ai] + home_adv)
+        lam_a = np.exp(attack[ai] - defense[hi])
+        
+        ll_h = poisson.logpmf(home_goals, lam_h)
+        ll_a = poisson.logpmf(away_goals, lam_a)
+        ll = np.sum(W * (ll_h + ll_a))
 
         # Identifiability constraint: reduced penalty 1000 (was 10000)
         penalty = 1000.0 * (np.sum(attack) ** 2)
@@ -72,17 +75,30 @@ def fit_rho_concentrated(home_teams, away_teams, home_goals, away_goals,
     """
     W = time_weights if time_weights is not None else np.ones(len(home_goals))
 
+    hi = np.array([team_idx[t] for t in home_teams])
+    ai = np.array([team_idx[t] for t in away_teams])
+    
+    lam_h = np.exp(attack[hi] - defense[ai] + home_adv)
+    lam_a = np.exp(attack[ai] - defense[hi])
+
     def neg_ll_rho(rho):
-        ll = 0.0
-        for i, (ht, at, gh, ga) in enumerate(zip(home_teams, away_teams,
-                                                   home_goals, away_goals)):
-            hi, ai = team_idx[ht], team_idx[at]
-            lam_h = np.exp(attack[hi] - defense[ai] + home_adv)
-            lam_a = np.exp(attack[ai] - defense[hi])
-            tau = dc_tau(gh, ga, lam_h, lam_a, rho)
-            if tau <= 0:
-                return 1e9
-            ll += W[i] * np.log(max(tau, 1e-10))
+        tau = np.ones_like(home_goals, dtype=float)
+        
+        # Vectorized Dixon-Coles low-score correction
+        mask_00 = (home_goals == 0) & (away_goals == 0)
+        mask_01 = (home_goals == 0) & (away_goals == 1)
+        mask_10 = (home_goals == 1) & (away_goals == 0)
+        mask_11 = (home_goals == 1) & (away_goals == 1)
+        
+        tau[mask_00] = 1.0 - lam_h[mask_00] * lam_a[mask_00] * rho
+        tau[mask_01] = 1.0 + lam_h[mask_01] * rho
+        tau[mask_10] = 1.0 + lam_a[mask_10] * rho
+        tau[mask_11] = 1.0 - rho
+        
+        if np.any(tau <= 0):
+            return 1e9
+            
+        ll = np.sum(W * np.log(np.clip(tau, 1e-10, None)))
         return -ll
 
     result = minimize_scalar(neg_ll_rho, bounds=(-0.35, 0.35), method='bounded')
