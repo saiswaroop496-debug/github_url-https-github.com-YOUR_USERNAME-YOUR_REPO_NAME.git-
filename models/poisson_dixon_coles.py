@@ -1,17 +1,29 @@
+import pandas as pd
 import numpy as np
 from scipy.optimize import minimize, minimize_scalar
 from scipy.stats import poisson
 
+
+def compute_time_decay_weights(dates, xi=0.0065):
+    T = pd.to_datetime(dates).max()
+    days_ago = (T - pd.to_datetime(dates)).dt.days.values
+    weights  = np.exp(-xi * days_ago)
+    return weights / weights.sum() * len(weights)
+
+
 # --- STAGE 1: Fit attack/defense with identifiability constraint --------------
 def fit_attack_defense(home_teams, away_teams, home_goals, away_goals,
-                       all_teams, time_weights=None):
+                       all_teams, time_weights=None, sample_weight=None):
     """
     Stage 1: MLE for attack/defense parameters only.
     Identifiability penalty: 1000 * sum(attack)^2 anchors mean(attack)=0.
     """
     n_teams = len(all_teams)
     team_idx = {t: i for i, t in enumerate(all_teams)}
-    W = time_weights if time_weights is not None else np.ones(len(home_goals))
+    if sample_weight is not None:
+        W = sample_weight
+    else:
+        W = time_weights if time_weights is not None else np.ones(len(home_goals))
 
     def neg_log_likelihood(params):
         attack  = params[:n_teams]

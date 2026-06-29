@@ -24,7 +24,20 @@ from xgboost import XGBRegressor
 from data.scraper import DataScraper
 from features.rolling_features import compute_rolling_features
 from features.glicko_ratings import Glicko2RatingSystem
-from models.meta_learner import expected_calibration_error
+def expected_calibration_error(y_true, y_prob, n_bins=10):
+    bins = np.linspace(0., 1., n_bins + 1)
+    binids = np.digitize(y_prob, bins) - 1
+    
+    bin_sums = np.bincount(binids, weights=y_prob, minlength=len(bins))
+    bin_true = np.bincount(binids, weights=y_true, minlength=len(bins))
+    bin_total = np.bincount(binids, minlength=len(bins))
+    
+    nonzero = bin_total != 0
+    prob_true = bin_true[nonzero] / bin_total[nonzero]
+    prob_pred = bin_sums[nonzero] / bin_total[nonzero]
+    
+    ece = np.sum(np.abs(prob_true - prob_pred) * (bin_total[nonzero] / len(y_true)))
+    return ece
 
 # =====================================================================
 # VECTORIZED DIXON-COLES (replaces row-by-row for speed)
