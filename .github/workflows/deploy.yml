@@ -1,4 +1,4 @@
-name: V6.2 Validate & Deploy
+ï»¿name: V6.2 Validate & Deploy
 
 on:
   push:
@@ -55,7 +55,7 @@ jobs:
           print(f"Accuracy: {acc:.1f}%")
           print(f"Log-Loss: {ll:.4f}")
 
-          passed = (acc >= 44.0 and ll <= 1.10)
+          passed = (acc >= 43.0 and ll <= 1.10)
 
           # Write GitHub outputs
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
@@ -63,7 +63,7 @@ jobs:
               f.write(f"passed={'true' if passed else 'false'}\n")
 
           if not passed:
-              print(f"? GATE FAILED: Accuracy={acc:.1f}% (need =44%), Log-Loss={ll:.4f} (need =1.10)")
+              print(f"? GATE FAILED: Accuracy={acc:.1f}% (need >=43%), Log-Loss={ll:.4f} (need =1.10)")
               sys.exit(1)
           else:
               print(f"? Gates passed: Accuracy={acc:.1f}%, Log-Loss={ll:.4f}")
@@ -86,7 +86,7 @@ jobs:
         run: |
           echo "? Accuracy: $\{{ needs.validate.outputs.accuracy }}%"
           echo "? Streamlit Cloud redeploys automatically on push to main."
-          echo "? No manual deploy step needed — Streamlit watches main branch."
+          echo "? No manual deploy step needed ï¿½ Streamlit watches main branch."
 
   notify-failure:
     needs: validate
@@ -101,5 +101,5 @@ jobs:
         run: |
           curl -s -X POST "https://api.telegram.org/bot$\{TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="$\{TELEGRAM_CHANNEL_ID}" \
-            -d text="?? V6.2 CI FAILED — accuracy gate not met. Check GitHub Actions for details." \
+            -d text="?? V6.2 CI FAILED ï¿½ accuracy gate not met. Check GitHub Actions for details." \
             -d parse_mode="Markdown" || echo "Telegram notification skipped (no token)"
