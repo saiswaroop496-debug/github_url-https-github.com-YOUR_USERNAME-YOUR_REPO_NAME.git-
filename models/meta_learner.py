@@ -1,7 +1,8 @@
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.calibration import CalibratedClassifierCV, calibration_curve
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.isotonic import IsotonicRegression
+from sklearn.pipeline import Pipeline
 import warnings
 
 try:
@@ -9,179 +10,163 @@ try:
     SMOTE_AVAILABLE = True
 except ImportError:
     SMOTE_AVAILABLE = False
-    warnings.warn("imbalanced-learn not installed. SMOTE disabled. Run: pip install imbalanced-learn")
 
 
-# --- SMOTE Balancing (training split only) ------------------------------------
-def balance_oof_for_meta(X_oof: np.ndarray, y_oof: np.ndarray):
+# ─── SafeSMOTE (at module scope for pickling) ─────────────────────────────────
+class SafeSMOTE:
+    """Picklable SMOTE wrapper — safe for Streamlit Cloud deserialization."""
+    def fit_resample(self, X, y):
+        if not SMOTE_AVAILABLE:
+            return X, y
+        counts = {c: (y == c).sum() for c in np.unique(y)}
+        min_count = min(counts.values())
+        if min_count < 4:
+            return X, y
+        k = min(3, min_count - 1)
+        smote = SMOTE(k_neighbors=k, random_state=42)
+        return smote.fit_resample(X, y)
+        
+    def transform(self, X, y=None):
+        """Pass-through for old Pipeline unpickling on Streamlit Cloud."""
+        return X
+
+    def fit(self, X, y=None):
+        """Pass-through for old Pipeline unpickling."""
+        return self
+
+
+# ─── TWO-HEAD ARCHITECTURE ────────────────────────────────────────────────────
+class TwoHeadMetaLearner:
     """
-    Apply SMOTE to OOF training data to address draw class imbalance.
-    k_neighbors=3 is safe for small datasets (~120-150 samples).
-    Returns original data unchanged if SMOTE unavailable.
+    Head 1: Draw Gate — binary classifier for P(Draw)
+    Head 2: Direction Gate — binary classifier for P(Home Win | not Draw)
+    This completely decouples draw prediction from the H/A competition.
     """
-    if not SMOTE_AVAILABLE:
-        return X_oof, y_oof
+    def __init__(self, C_draw=0.3, C_direction=0.5):
+        self.draw_gate = LogisticRegression(
+            C=C_draw,
+            class_weight={0: 1.0, 1: 3.5},  # 3.5x weight on draws
+            solver='lbfgs', max_iter=1000, random_state=42
+        )
+        self.direction_gate = LogisticRegression(
+            C=C_direction,
+            class_weight='balanced',
+            solver='lbfgs', max_iter=1000, random_state=42
+        )
+        self.calibrators = {}   # per-market isotonic calibrators
+        self.classes_ = ['Home Win', 'Draw', 'Away Win']
+        self.is_fitted = False
 
-    class_counts = {c: (y_oof == c).sum() for c in np.unique(y_oof)}
-    min_class_count = min(class_counts.values())
+    def fit(self, X: np.ndarray, y: np.ndarray):
+        """Fit both heads on OOF training split with SMOTE."""
+        smote = SafeSMOTE()
+        X_bal, y_bal = smote.fit_resample(X, y)
 
-    if min_class_count < 4:
-        warnings.warn(f"Min class count {min_class_count} too small for SMOTE. Skipping.")
-        return X_oof, y_oof
+        y_draw     = (y_bal == 'Draw').astype(int)
+        self.draw_gate.fit(X_bal, y_draw)
 
-    k = min(3, min_class_count - 1)
-    majority_count = max(class_counts.values())
-    target_count = int(majority_count * 0.85)
-    strategy = {c: max(count, target_count) for c, count in class_counts.items()}
-    
-    smote = SMOTE(
-        k_neighbors=k,
-        sampling_strategy=strategy,
-        random_state=42
-    )
-    X_res, y_res = smote.fit_resample(X_oof, y_oof)
-    
-    draw_original = ((y_oof == 'Draw') | (y_oof == 1)).sum()
-    draw_res = ((y_res == 'Draw') | (y_res == 1)).sum()
-    
-    print(f"  SMOTE: {len(y_oof)} ? {len(y_res)} samples "
-          f"(Draw: {draw_original} ? {draw_res})")
-    return X_res, y_res
+        non_draw_mask = y_bal != 'Draw'
+        if non_draw_mask.sum() > 10:
+            y_dir = (y_bal[non_draw_mask] == 'Home Win').astype(int)
+            self.direction_gate.fit(X_bal[non_draw_mask], y_dir)
+        else:
+            warnings.warn("Insufficient non-draw samples for direction gate.")
 
+        self.is_fitted = True
+        return self
 
-# --- Draw-Isolated Platt Recalibration ----------------------------------------
-def recalibrate_draw_column(proba: np.ndarray, y_true: np.ndarray,
-                             draw_idx: int, ece_threshold: float = 0.08):
-    """
-    If ECE for the Draw column exceeds threshold, apply isotonic recalibration
-    strictly to the Draw probability column. Does not touch Home/Away columns.
-    Target range: draw probabilities scaled to [0.28, 0.38].
-    """
-    draw_probs = proba[:, draw_idx]
-    draw_true  = ((y_true == 'Draw') | (y_true == 1)).astype(int)
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """
+        Produce calibrated 3-class probabilities.
+        p_draw from draw_gate, p_home/p_away from direction_gate.
+        """
+        p_draw      = self.draw_gate.predict_proba(X)[:, 1]
+        p_hw_cond   = self.direction_gate.predict_proba(X)[:, 1]
+        p_home      = (1 - p_draw) * p_hw_cond
+        p_away      = (1 - p_draw) * (1 - p_hw_cond)
+        proba       = np.column_stack([p_home, p_draw, p_away])
 
-    # Compute draw-column ECE
-    fraction_pos, mean_pred = calibration_curve(draw_true, draw_probs, n_bins=5)
-    draw_ece = np.mean(np.abs(fraction_pos - mean_pred))
+        # Apply per-market isotonic calibration if fitted
+        if self.calibrators:
+            proba = self._apply_calibration(proba)
 
-    if draw_ece <= ece_threshold:
-        print(f"  Draw ECE={draw_ece:.4f} within threshold. No recalibration needed.")
+        # Ensure valid probability simplex
+        proba = np.clip(proba, 0.02, 0.96)
+        proba = proba / proba.sum(axis=1, keepdims=True)
         return proba
 
-    print(f"  Draw ECE={draw_ece:.4f} > {ece_threshold}. Applying isotonic recalibration.")
-    iso = IsotonicRegression(out_of_bounds='clip', y_min=0.28, y_max=0.38)
-    iso.fit(draw_probs, draw_true.astype(float))
-    recal_draw = iso.predict(draw_probs)
+    def _apply_calibration(self, proba: np.ndarray) -> np.ndarray:
+        cal = proba.copy()
+        for i, market in enumerate(self.classes_):
+            if market in self.calibrators:
+                cal[:, i] = self.calibrators[market].predict(proba[:, i])
+        return cal
 
-    # Re-normalize so rows sum to 1
-    proba_new = proba.copy()
-    proba_new[:, draw_idx] = recal_draw
-    row_sums = proba_new.sum(axis=1, keepdims=True)
-    return proba_new / row_sums
-
-
-# --- Meta-Learner Fit ---------------------------------------------------------
-from imblearn.pipeline import Pipeline
-
-class SafeSMOTE:
-    def __init__(self, random_state=42):
-        self.random_state = random_state
-    
-    def fit(self, X, y):
+    def fit_calibration(self, X_cal: np.ndarray, y_cal: np.ndarray):
+        """
+        Fit per-market Isotonic Regression calibrators on held-out data.
+        Call AFTER fit(), on a separate chronological slice.
+        """
+        proba_cal = self.predict_proba(X_cal)
+        for i, market in enumerate(self.classes_):
+            iso = IsotonicRegression(out_of_bounds='clip',
+                                     y_min=0.05, y_max=0.90)
+            y_bin = (y_cal == market).astype(float)
+            iso.fit(proba_cal[:, i], y_bin)
+            self.calibrators[market] = iso
         return self
-        
-    def fit_resample(self, X, y):
-        return balance_oof_for_meta(X, y)
 
-def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray, classes: list):
+    def compute_ece(self, X: np.ndarray, y: np.ndarray,
+                     n_bins: int = 10) -> float:
+        """Expected Calibration Error across all 3 markets."""
+        proba = self.predict_proba(X)
+        ece_total = 0.0
+        for i, market in enumerate(self.classes_):
+            y_bin = (y == market).astype(float)
+            p = proba[:, i]
+            bins = np.linspace(0, 1, n_bins + 1)
+            for lo, hi in zip(bins[:-1], bins[1:]):
+                mask = (p >= lo) & (p < hi)
+                if mask.sum() == 0:
+                    continue
+                acc  = y_bin[mask].mean()
+                conf = p[mask].mean()
+                ece_total += (mask.sum() / len(y)) * abs(acc - conf)
+        return ece_total / 3   # average over 3 markets
+
+
+def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray) -> TwoHeadMetaLearner:
     """
-    Full meta-learner training pipeline:
-    1. SMOTE balance on training split
-    2. Balanced LR fit
-    3. Platt calibration on held-out chronological slice
-    4. Draw column recalibration if ECE > 0.08
+    Full meta-learner training:
+    1. Train on first 85% of OOF (chronological)
+    2. Calibrate isotonic on last 15% of OOF
     """
-    lr = LogisticRegression(
-        C=0.5,
-        class_weight=None,
-        multi_class='multinomial',
-        solver='lbfgs',
-        max_iter=1000,
-        random_state=42
-    )
+    n = len(y_oof)
+    cal_split = int(n * 0.85)
 
-    pipeline = Pipeline([
-        ('smote', SafeSMOTE(random_state=42)),
-        ('lr', lr)
-    ])
+    model = TwoHeadMetaLearner(C_draw=0.3, C_direction=0.5)
+    model.fit(oof_preds[:cal_split], y_oof[:cal_split])
+    model.fit_calibration(oof_preds[cal_split:], y_oof[cal_split:])
 
-    calibrated = CalibratedClassifierCV(pipeline, cv=3, method='sigmoid')
-    calibrated.fit(oof_preds, y_oof)
-
-    return calibrated
+    ece = model.compute_ece(oof_preds[cal_split:], y_oof[cal_split:])
+    print(f"  Meta-learner ECE (cal set): {ece:.4f} (target: <0.04)")
+    return model
 
 
-def predict_with_draw_threshold(model, X_proba: np.ndarray, classes: list,
-                                  draw_thresh: float = 0.38,
-                                  draw_affinity_floor: float = 0.45,
-                                  draw_affinity_arr=None):
+def predict_with_draw_threshold(model: TwoHeadMetaLearner,
+                                  X: np.ndarray,
+                                  draw_thresh: float = 0.30) -> tuple:
     """
-    Dual-gate draw prediction:
-    1. Model probability must exceed draw_thresh
-    2. draw_affinity feature must exceed floor (confirms tight match)
+    With the two-head architecture, draw_thresh is lower (0.30 vs old 0.38)
+    because draw probabilities are now correctly distributed, not suppressed.
     """
-    proba = model.predict_proba(X_proba)
-    class_list = list(classes)
-    draw_idx = class_list.index('Draw') if 'Draw' in class_list else class_list.index(1)
-
+    proba = model.predict_proba(X)
+    draw_idx = model.classes_.index('Draw')
     preds = []
-    home_idx = class_list.index('Home') if 'Home' in class_list else class_list.index(0)
-    away_idx = class_list.index('Away') if 'Away' in class_list else class_list.index(2)
-
-    for i, p in enumerate(proba):
-        prob_gate = p[draw_idx] >= draw_thresh
-        affinity_gate = (draw_affinity_arr is None or
-                         draw_affinity_arr[i] >= draw_affinity_floor)
-        if prob_gate and affinity_gate:
-            preds.append(class_list[draw_idx])
+    for p in proba:
+        if p[draw_idx] >= draw_thresh:
+            preds.append('Draw')
         else:
-            # Force Home or Away based on which has higher probability
-            if p[home_idx] > p[away_idx]:
-                preds.append(class_list[home_idx])
-            else:
-                preds.append(class_list[away_idx])
+            non_draw = [(i, v) for i, v in enumerate(p) if i != draw_idx]
+            preds.append(model.classes_[max(non_draw, key=lambda x: x[1])[0]])
     return np.array(preds), proba
-
-
-# --- Optuna Cap (if used for LR hyperparameter tuning) ------------------------
-def tune_lr_optuna(X: np.ndarray, y: np.ndarray):
-    """Optuna-tuned C parameter. Capped at 20 trials, 30s timeout."""
-    try:
-        import optuna
-        optuna.logging.set_verbosity(optuna.logging.WARNING)
-
-        def objective(trial):
-            C = trial.suggest_float('C', 0.01, 2.0, log=True)
-            from sklearn.model_selection import cross_val_score
-            lr = LogisticRegression(C=C, class_weight='balanced',
-                                    solver='lbfgs', max_iter=500)
-            scores = cross_val_score(lr, X, y, cv=3, scoring='neg_log_loss')
-            return -scores.mean()
-
-        study = optuna.create_study(direction='minimize')
-        study.optimize(objective, n_trials=20, timeout=30)
-        return study.best_params['C']
-
-    except ImportError:
-        return 0.5   # safe default if Optuna not installed
-
-def expected_calibration_error(y_true, y_prob, n_bins=10):
-    bins = np.linspace(0, 1, n_bins + 1)
-    ece = 0
-    for i in range(n_bins):
-        mask = (y_prob >= bins[i]) & (y_prob < bins[i+1])
-        if mask.sum() > 0:
-            acc = y_true[mask].mean()
-            conf = y_prob[mask].mean()
-            ece += mask.sum() / len(y_true) * abs(acc - conf)
-    return ece
