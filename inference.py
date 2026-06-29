@@ -394,16 +394,58 @@ def _cached_inference(home_team: str, away_team: str,
     })
 
 def run_inference(home_team: str, away_team: str,
-                  venue_factor: float = 0.3, stage: str = "group",
-                  home_odds: float = None, draw_odds: float = None,
-                  away_odds: float = None) -> dict:
+                   venue_factor: float = 0.3,
+                   stage: str = "group",
+                   home_odds=None, draw_odds=None, away_odds=None,
+                   # ── LIVE PARAMETERS ──────────────────────────────────
+                   elapsed_minutes: int = None,
+                   home_goals_live: int = None,
+                   away_goals_live: int = None,
+                   red_cards: dict = None,
+                   live_state: dict = None) -> dict:
     """
-    Full inference pipeline. First call: ~50ms. Subsequent calls: <5ms.
+    Unified inference entry point.
+    If elapsed_minutes is provided → In-Play mode (DC only).
+    Otherwise → Pre-match mode (full ML ensemble + DC blend).
     """
-    states_hash = _get_states_hash()
-    result_json = _cached_inference(home_team, away_team, venue_factor, stage, states_hash)
-    result = json.loads(result_json)
+    is_live = elapsed_minutes is not None
+    _ensure_loaded()
 
+    if is_live:
+        # ── IN-PLAY: Dixon-Coles time-decay only ─────────────────────────
+        if _dc_params is None:
+            lam_h, lam_a, rho = 1.4, 1.0, -0.13
+        else:
+            attack   = _dc_params.get("attack", {})
+            defense  = _dc_params.get("defense", {})
+            home_adv = _dc_params.get("home_adv", 0.3)
+            rho      = _dc_params.get("rho", -0.13)
+            
+            if home_team in attack and away_team in attack:
+                eff_ha = home_adv * venue_factor
+                lam_h = np.exp(attack[home_team] - defense[away_team] + eff_ha)
+                lam_a = np.exp(attack[away_team] - defense[home_team])
+            else:
+                lam_h, lam_a = 1.4, 1.0
+
+        from models.poisson_dixon_coles import live_in_play_predict
+        result = live_in_play_predict(
+            lam_h_prematch=lam_h,
+            lam_a_prematch=lam_a,
+            elapsed=elapsed_minutes,
+            home_goals=home_goals_live or 0,
+            away_goals=away_goals_live or 0,
+            rho=rho,
+            red_cards=red_cards,
+            live_state=live_state
+        )
+    else:
+        # ── PRE-MATCH: Full ML ensemble + DC blend ─────────────────────
+        states_hash = _get_states_hash()
+        result_json = _cached_inference(home_team, away_team, venue_factor, stage, states_hash)
+        result = json.loads(result_json)
+
+    # Add betting signals if odds provided
     if all([home_odds, draw_odds, away_odds]):
         betting = _compute_betting_math(
             {"home_win": result["home_win_prob"], "draw": result["draw_prob"], "away_win": result["away_win_prob"]},
@@ -413,5 +455,5 @@ def run_inference(home_team: str, away_team: str,
         result["best_bet"] = betting.get("best_bet")
         result["kelly_fraction"] = betting.get("kelly_fraction")
         result["all_edges"] = betting.get("all_edges")
-        
+
     return result
