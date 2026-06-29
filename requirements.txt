@@ -1,14 +1,11 @@
-streamlit==1.35.0
-pandas==2.2.2
-numpy==1.26.4
-scipy==1.13.0
-scikit-learn==1.4.2
-catboost==1.2.5
-xgboost==2.0.3
-lightgbm==4.3.0
-joblib==1.4.2
-python-dotenv==1.0.1
-statsmodels==0.14.2
+# Core ML stack — Streamlit Cloud compatible
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.4.0
+xgboost>=2.0.0
+catboost>=1.2.0
+lightgbm>=4.0.0
+scipy>=1.11.0
 imbalanced-learn>=0.12.0
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
@@ -17,4 +14,9 @@ apscheduler>=3.10.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0
 statsmodels>=0.14.0
-httpx>=0.27.0
+optuna>=3.4.0
+joblib>=1.3.0
+streamlit>=1.35.0
+requests>=2.31.0
+# NOTE: ultralytics, supervision, opencv-python intentionally excluded
+# Player tracker runs locally only — outputs cached to data/movement_stats.json

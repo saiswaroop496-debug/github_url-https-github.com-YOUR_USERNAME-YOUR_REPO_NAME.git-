@@ -126,6 +126,10 @@ def main():
 
     t_start = time.time()
 
+    # 1. LIVE DATA UPDATE
+    from data.live_updater import update_dataset
+    update_dataset(cutoff_date="2026-06-01")
+
     # 1. DATA
     scraper = DataScraper()
     dc_df, form_df = scraper.fetch_fixtures()
@@ -140,20 +144,38 @@ def main():
     df = glicko.compute_ratings(df)
 
     print("[FEATURES]  Computing V6 specific features â€¦")
-    from features.rolling_features import compute_v6_features
+    from features.rolling_features import compute_v6_features, add_injury_features, add_movement_features
     df = compute_v6_features(df)
+    df = add_injury_features(df)
+    df = add_movement_features(df)
 
     # 3. FEATURE COLUMNS & TARGET
-    FEATURE_COLS = [
+    FEATURE_COLS_FULL = [
+        # Core Glicko signals (4)
         'home_glicko', 'home_rd', 'away_glicko', 'away_rd',
-        'xg_supremacy', 'glicko_signal', 'draw_affinity',
+        # Derived strength signals (3)
+        'glicko_signal', 'xg_supremacy', 'draw_affinity',
+        # Form signals (2)
         'home_neutral_venue_form', 'away_neutral_venue_form',
-        'rest_differential',
-        'defensive_balance',
-        'stage_pressure',
-        'h2h_draw_rate',
+        # Context signals (2)
+        'rest_differential', 'stage_pressure',
+        # NEW — Injury signals (2)
+        'injury_differential', 'key_injury_factor',
+        # NEW — Movement signals (2, default 0 when no video)
+        'speed_diff', 'home_total_sprints',
+        # NEW — API distance proxy (1)
+        'press_proxy_diff',
     ]
-    available_cols = [c for c in FEATURE_COLS if c in df.columns]
+
+    available_cols = [c for c in FEATURE_COLS_FULL if c in df.columns]
+    print(f"  Features available: {len(available_cols)}/{len(FEATURE_COLS_FULL)}")
+    print(f"  Missing (will be added as 0): {[c for c in FEATURE_COLS_FULL if c not in df.columns]}")
+
+    for c in FEATURE_COLS_FULL:
+        if c not in df.columns:
+            df[c] = 0.0
+            
+    available_cols = FEATURE_COLS_FULL
     print(f"[FEATURES]  Using {len(available_cols)} features: {available_cols}")
 
     df = df.dropna(subset=available_cols).reset_index(drop=True)

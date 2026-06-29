@@ -1,4 +1,4 @@
-import pandas as pd
+﻿import pandas as pd
 import numpy as np
 
 def h2h_draw_rate_fast(df):
@@ -224,4 +224,77 @@ def add_squad_features(df: pd.DataFrame, api_key: str = None) -> pd.DataFrame:
     df['home_sas'] = sas_home
     df['away_sas'] = sas_away
     df['sas_differential'] = df['home_sas'] - df['away_sas']
+    return df
+
+def add_injury_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build injury features from home_injuries/away_injuries columns.
+    Uses .shift(1) per team group to prevent target leakage.
+    Gracefully defaults to 0 if columns are absent.
+    """
+    for col in ['home_injuries', 'away_injuries', 'home_key_injury', 'away_key_injury']:
+        if col not in df.columns:
+            df[col] = 0
+
+    # Shift injury counts per team so match N uses injuries from match N-1
+    df = df.sort_values('date').reset_index(drop=True)
+    df['home_injuries_lagged']    = df.groupby('home_team')['home_injuries'].shift(1).fillna(0)
+    df['away_injuries_lagged']    = df.groupby('away_team')['away_injuries'].shift(1).fillna(0)
+    df['home_key_injury_lagged']  = df.groupby('home_team')['home_key_injury'].shift(1).fillna(0)
+    df['away_key_injury_lagged']  = df.groupby('away_team')['away_key_injury'].shift(1).fillna(0)
+
+    df['injury_differential'] = df['away_injuries_lagged'] - df['home_injuries_lagged']
+    df['key_injury_factor']   = (
+        -0.15 * df['home_key_injury_lagged'] +
+         0.15 * df['away_key_injury_lagged']
+    )
+    return df
+
+
+def add_movement_features(df: pd.DataFrame,
+                           stats_path: str = "data/movement_stats.json") -> pd.DataFrame:
+    """
+    Merge pre-computed player movement stats into df.
+    If stats_path doesn't exist -> all movement cols default to 0.0.
+    Applies .shift(1) per team group (anti-leakage).
+    """
+    import json
+    from pathlib import Path
+    
+    movement_cols = ['speed_diff', 'home_total_distance_m',
+                     'away_total_distance_m', 'home_total_sprints', 'away_total_sprints']
+
+    for col in movement_cols:
+        df[col] = 0.0
+
+    if not Path(stats_path).exists():
+        return df   # graceful fallback � all zeros
+
+    with open(stats_path) as f:
+        movement = json.load(f)
+
+    lookup = {}
+    for key, stats in movement.items():
+        parts = key.split("_vs_")
+        if len(parts) == 2:
+            home = parts[0]
+            rest = parts[1].split("_")
+            away = rest[0]
+            date = rest[1] if len(rest) > 1 else ""
+            lookup[(home, away, date)] = stats
+
+    for idx, row in df.iterrows():
+        k = (row.get('home_team',""), row.get('away_team',""), str(row.get('date',""))[:10])
+        if k in lookup:
+            s = lookup[k]
+            df.at[idx, 'speed_diff']              = s.get('speed_diff', 0.0)
+            df.at[idx, 'home_total_distance_m']   = s.get('home_total_distance_m', 0.0)
+            df.at[idx, 'away_total_distance_m']   = s.get('away_total_distance_m', 0.0)
+            df.at[idx, 'home_total_sprints']      = s.get('home_total_sprints', 0)
+            df.at[idx, 'away_total_sprints']      = s.get('away_total_sprints', 0)
+
+    # Anti-leakage shift: physical data from match N-1 predicts match N
+    for col in movement_cols:
+        df[col] = df.groupby('home_team')[col].shift(1).fillna(0)
+
     return df
