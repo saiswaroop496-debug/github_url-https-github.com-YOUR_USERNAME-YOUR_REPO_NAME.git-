@@ -145,10 +145,17 @@ metrics = load_manifest_metrics()
 col_logo, col_tier = st.columns([3, 1])
 with col_logo:
     st.markdown("## ⚽ FIFA World Cup Quantitative Engine V6.2")
+    acc = metrics.get('accuracy')
+    if acc is None: acc = 43.4
+    if acc < 1.0: acc *= 100.0
+    
+    ll = metrics.get('log_loss') or 1.084
+    ece = metrics.get('ece') or 0.084
+    
     st.caption(
-        f"Walk-Forward Accuracy: **{metrics.get('accuracy', 43.4):.1f}%** | "
-        f"Log-Loss: **{metrics.get('log_loss', 1.084):.4f}** | "
-        f"ECE: **{metrics.get('ece', 0.084):.4f}**"
+        f"Walk-Forward Accuracy: **{acc:.1f}%** | "
+        f"Log-Loss: **{ll:.4f}** | "
+        f"ECE: **{ece:.4f}**"
     )
 with col_tier:
     tier_choice = st.radio("Access", ["🆓 Free", "🔑 Syndicate"],
