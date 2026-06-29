@@ -174,12 +174,20 @@ def main():
     for c in FEATURE_COLS_FULL:
         if c not in df.columns:
             df[c] = 0.0
+        else:
+            df[c] = df[c].fillna(0.0)
             
     available_cols = FEATURE_COLS_FULL
     print(f"[FEATURES]  Using {len(available_cols)} features: {available_cols}")
 
     df = df.dropna(subset=available_cols).reset_index(drop=True)
-    print(f"[FEATURES]  {len(df)} matches after NaN drop")
+    
+    # Optional filter for walk-forward efficiency (keep 2018 onwards)
+    if 'date' in df.columns:
+        df['date'] = pd.to_datetime(df['date'])
+        df = df[df['date'].dt.year >= 2018].reset_index(drop=True)
+        
+    print(f"[FEATURES]  {len(df)} matches after preprocessing")
 
     # Regime filter: Exclude mismatch games (rating diff > 400)
     regime_mask = (df['home_glicko'] - df['away_glicko']).abs() < 400
