@@ -6,9 +6,14 @@ import os
 import numpy as np
 import joblib
 import warnings
+import xgboost as xgb
 from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+
+# Suppress XGBoost serialization warnings when unpickling models via joblib
+xgb.set_config(verbosity=0)
+warnings.filterwarnings("ignore", category=UserWarning, module="xgboost")
 
 load_dotenv()
 
