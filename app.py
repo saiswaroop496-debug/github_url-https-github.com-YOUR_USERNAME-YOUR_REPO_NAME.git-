@@ -134,6 +134,7 @@ if live_mode:
     live_ag   = st.sidebar.number_input("Away Goals", 0, 10, 0, step=1)
     home_reds = st.sidebar.number_input("Home Red Cards", 0, 3, 0, step=1)
     away_reds = st.sidebar.number_input("Away Red Cards", 0, 3, 0, step=1)
+    live_state = None
 
     # Auto-poll toggle
     auto_poll = st.sidebar.checkbox("🔄 Auto-refresh every 60s", value=False)
