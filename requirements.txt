@@ -1,12 +1,12 @@
 # Core ML stack — Streamlit Cloud compatible
-pandas>=2.0.0
-numpy>=1.24.0
-scikit-learn>=1.4.0
-xgboost>=2.0.0
-catboost>=1.2.0
-lightgbm>=4.0.0
-scipy>=1.11.0
-imbalanced-learn>=0.12.0
+pandas==3.0.3
+numpy==2.4.6
+scikit-learn==1.8.0
+xgboost==3.2.0
+catboost==1.2.10
+lightgbm==4.6.0
+scipy==1.17.1
+imbalanced-learn==0.14.2
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
 python-telegram-bot>=21.0
@@ -15,7 +15,7 @@ pydantic>=2.0.0
 python-dotenv>=1.0.0
 statsmodels>=0.14.0
 optuna>=3.4.0
-joblib>=1.3.0
+joblib==1.5.3
 streamlit>=1.35.0
 requests>=2.31.0
 # NOTE: ultralytics, supervision, opencv-python intentionally excluded
