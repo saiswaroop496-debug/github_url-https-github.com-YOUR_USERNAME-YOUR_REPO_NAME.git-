@@ -80,6 +80,12 @@ class TwoHeadMetaLearner:
         Produce calibrated 3-class probabilities.
         p_draw from draw_gate, p_home/p_away from direction_gate.
         """
+        # Patch for Scikit-Learn version mismatch during unpickling
+        if not hasattr(self.draw_gate, 'multi_class'):
+            self.draw_gate.multi_class = 'auto'
+        if not hasattr(self.direction_gate, 'multi_class'):
+            self.direction_gate.multi_class = 'auto'
+
         p_draw      = self.draw_gate.predict_proba(X)[:, 1]
         p_hw_cond   = self.direction_gate.predict_proba(X)[:, 1]
         p_home      = (1 - p_draw) * p_hw_cond
