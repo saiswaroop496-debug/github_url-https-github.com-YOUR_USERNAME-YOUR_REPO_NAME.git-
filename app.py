@@ -144,10 +144,16 @@ if live_mode:
             from data.live_match_poller import get_live_match_state
             live_state = get_live_match_state()
             if live_state:
-                elapsed  = live_state.get("elapsed", elapsed)
-                live_hg  = live_state.get("home_goals", live_hg)
-                live_ag  = live_state.get("away_goals", live_ag)
-                st.sidebar.success(f"Live: {live_hg}-{live_ag} @ {elapsed}'")
+                def safe_int(val, fallback):
+                    try: return int(val) if val is not None else fallback
+                    except: return fallback
+
+                elapsed   = safe_int(live_state.get("elapsed"), elapsed)
+                live_hg   = safe_int(live_state.get("home_goals"), live_hg)
+                live_ag   = safe_int(live_state.get("away_goals"), live_ag)
+                home_reds = safe_int(live_state.get("home_reds"), home_reds)
+                away_reds = safe_int(live_state.get("away_reds"), away_reds)
+                st.sidebar.success(f"Live: {live_hg}-{live_ag} @ {elapsed}' (Reds: {home_reds}-{away_reds})")
     else:
         live_state = None
 else:

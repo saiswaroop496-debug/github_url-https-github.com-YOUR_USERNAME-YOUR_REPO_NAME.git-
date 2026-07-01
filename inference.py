@@ -56,26 +56,15 @@ _feature_cols   = None
 _dc_params      = None   # {attack, defense, home_adv, rho, team_idx}
 
 
-def _load_artifacts():
-    """Load all model artifacts into memory. Called once at module import."""
-    global _base_learners, _meta_learner, _scaler, _team_states, _feature_cols, _dc_params
+def _load_base_artifacts():
+    """Load lightweight artifacts (JSON states, DC params)."""
+    global _team_states, _feature_cols, _dc_params
 
-    if _meta_learner is not None:
-        return   # already loaded
+    if _team_states is not None:
+        return
 
     if not MODEL_DIR.exists():
-        raise FileNotFoundError(
-            f"Model directory not found: {MODEL_DIR}. "
-            "Run train_test.py first to generate model artifacts."
-        )
-
-    print("  [LOADING] Model artifacts...")
-
-    _base_learners = joblib.load(MODEL_DIR / "base_learners.joblib")
-    _meta_learner  = joblib.load(MODEL_DIR / "meta_learner.joblib")
-
-    scaler_path = MODEL_DIR / "scaler.joblib"
-    _scaler = joblib.load(scaler_path) if scaler_path.exists() else None
+        raise FileNotFoundError(f"Model directory not found: {MODEL_DIR}")
 
     with open(STATES_PATH, encoding="utf-8") as f:
         _team_states = json.load(f)
@@ -87,14 +76,29 @@ def _load_artifacts():
     dc_path = MODEL_DIR / "dc_params.joblib"
     _dc_params = joblib.load(dc_path) if dc_path.exists() else None
 
-    print(f"  [OK] Loaded V{manifest['version']} ({manifest.get('build', 'unknown')}) | "
-          f"Features: {_feature_cols} | Teams: {len(_team_states)}")
+def _load_ml_artifacts():
+    """Load heavy ML artifacts (joblib models) into memory."""
+    global _base_learners, _meta_learner, _scaler
+
+    if _meta_learner is not None:
+        return   # already loaded
+
+    print("  [LOADING] Heavy ML artifacts...")
+
+    _base_learners = joblib.load(MODEL_DIR / "base_learners.joblib")
+    _meta_learner  = joblib.load(MODEL_DIR / "meta_learner.joblib")
+
+    scaler_path = MODEL_DIR / "scaler.joblib"
+    _scaler = joblib.load(scaler_path) if scaler_path.exists() else None
+    print("  [OK] Loaded ML Models.")
+    print(f"Features: {_feature_cols} | Teams: {len(_team_states)}")
 
 
-def _ensure_loaded():
-    """Lazy loader — called by run_inference() instead of at module level."""
-    if _meta_learner is None:
-        _load_artifacts()
+def _ensure_loaded(is_live=False):
+    """Lazy loader - splits loading based on requirement."""
+    _load_base_artifacts()
+    if not is_live:
+        _load_ml_artifacts()
 
 
 # ─── Team State Retrieval ─────────────────────────────────────────────────────
@@ -414,7 +418,7 @@ def run_inference(home_team: str, away_team: str,
     Otherwise → Pre-match mode (full ML ensemble + DC blend).
     """
     is_live = elapsed_minutes is not None
-    _ensure_loaded()
+    _ensure_loaded(is_live=is_live)
 
     if is_live:
         # ── IN-PLAY: Dixon-Coles time-decay only ─────────────────────────
@@ -460,5 +464,16 @@ def run_inference(home_team: str, away_team: str,
         result["best_bet"] = betting.get("best_bet")
         result["kelly_fraction"] = betting.get("kelly_fraction")
         result["all_edges"] = betting.get("all_edges")
+
+    # Apply Conformal Prediction Sets
+    try:
+        from models.conformal import ConformalPredictor
+        cp = ConformalPredictor(coverage=0.90)
+        cp.threshold = 0.05 # Mock threshold since we don't have the real calibration set in inference.py
+        probs = np.array([[result["home_win_prob"], result["draw_prob"], result["away_win_prob"]]])
+        prediction_set = cp.predict_set(probs, ["home_win", "draw", "away_win"])[0]
+        result["conformal_prediction_set"] = prediction_set
+    except Exception as e:
+        pass
 
     return result

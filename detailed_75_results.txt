@@ -1,0 +1,11 @@
+VULNERABILITIES CAUGHT: 0
+System passed 100% mathematically stable under heavy chaos injection.
+
+Aggregate Metrics across 75 matches (6750+ chaotic states):
+Min 00: LogLoss=1.0656, Brier=0.6440
+Min 15: LogLoss=0.9736, Brier=0.5851
+Min 30: LogLoss=0.8055, Brier=0.4812
+Min 45: LogLoss=0.7664, Brier=0.4633
+Min 60: LogLoss=0.5892, Brier=0.3483
+Min 75: LogLoss=0.3090, Brier=0.1643
+Min 90: LogLoss=0.0159, Brier=0.0008

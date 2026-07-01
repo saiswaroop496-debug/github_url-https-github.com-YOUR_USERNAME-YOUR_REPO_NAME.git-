@@ -3,6 +3,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.isotonic import IsotonicRegression
 from sklearn.pipeline import Pipeline
+from xgboost import XGBClassifier
 import warnings
 
 try:
@@ -42,11 +43,14 @@ class TwoHeadMetaLearner:
     Head 2: Direction Gate — binary classifier for P(Home Win | not Draw)
     This completely decouples draw prediction from the H/A competition.
     """
-    def __init__(self, C_draw=0.3, C_direction=0.5):
-        self.draw_gate = LogisticRegression(
-            C=C_draw,
-            class_weight={0: 1.0, 1: 3.5},  # 3.5x weight on draws
-            solver='lbfgs', max_iter=1000, random_state=42
+    def __init__(self, C_direction=0.5):
+        self.draw_gate = XGBClassifier(
+            n_estimators=50,
+            max_depth=3,
+            learning_rate=0.05,
+            scale_pos_weight=3.5,
+            eval_metric='logloss',
+            random_state=42
         )
         self.direction_gate = LogisticRegression(
             C=C_direction,
@@ -150,7 +154,7 @@ def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray) -> TwoHeadMetaLea
     n = len(y_oof)
     cal_split = int(n * 0.85)
 
-    model = TwoHeadMetaLearner(C_draw=0.3, C_direction=0.5)
+    model = TwoHeadMetaLearner(C_direction=0.5)
     model.fit(oof_preds[:cal_split], y_oof[:cal_split])
     model.fit_calibration(oof_preds[cal_split:], y_oof[cal_split:])
 

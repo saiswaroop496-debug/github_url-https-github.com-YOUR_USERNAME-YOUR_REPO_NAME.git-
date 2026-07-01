@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import minimize, minimize_scalar
 from scipy.stats import poisson
+from models.copula_goals import bivariate_score_matrix
 
 
 def compute_time_decay_weights(dates, xi=0.0065):
@@ -110,21 +111,9 @@ def fit_rho_concentrated(home_teams, away_teams, home_goals, away_goals,
 # --- Vectorized Score Matrix -------------------------------------------------
 def score_probability_matrix(lam_h: float, lam_a: float,
                               rho: float, max_goals: int = 8) -> np.ndarray:
-    """Vectorized scoreline probability matrix using np.outer."""
-    g = np.arange(max_goals + 1)
-    ph = poisson.pmf(g, lam_h)
-    pa = poisson.pmf(g, lam_a)
-    joint = np.outer(ph, pa)
-
-    # Apply DC tau correction to 2x2 block
-    tau = np.ones((max_goals + 1, max_goals + 1))
-    tau[0, 0] = 1.0 - lam_h * lam_a * rho
-    tau[0, 1] = 1.0 + lam_h * rho
-    tau[1, 0] = 1.0 + lam_a * rho
-    tau[1, 1] = 1.0 - rho
-
-    matrix = joint * tau
-    return matrix / matrix.sum()   # normalize
+    """Vectorized scoreline probability matrix using Frank Copula."""
+    matrix = bivariate_score_matrix(lam_h, lam_a, max_g=max_goals)
+    return matrix / np.sum(matrix)
 
 
 def outcome_probs(matrix: np.ndarray):
@@ -184,13 +173,15 @@ def in_play_adjust_lambdas(lam_h: float, lam_a: float,
     lam_h_rem = lam_h * time_fraction
     lam_a_rem = lam_a * time_fraction
 
-    # Red card penalty: each red card reduces attacking threat
+    # Red card penalty: each red card reduces attacking threat AND boosts opponent threat
     if red_cards:
         home_reds = red_cards.get("home", 0)
         away_reds = red_cards.get("away", 0)
-        RED_CARD_PENALTY = 0.35   # goals per full match
-        lam_h_rem = max(0.02, lam_h_rem - home_reds * RED_CARD_PENALTY * time_fraction)
-        lam_a_rem = max(0.02, lam_a_rem - away_reds * RED_CARD_PENALTY * time_fraction)
+        RED_CARD_PENALTY = 0.35   # goals per full match (attacking drop)
+        RED_CARD_BOOST   = 0.20   # goals per full match (opponent boost)
+        
+        lam_h_rem = max(0.02, lam_h_rem - home_reds * RED_CARD_PENALTY * time_fraction + away_reds * RED_CARD_BOOST * time_fraction)
+        lam_a_rem = max(0.02, lam_a_rem - away_reds * RED_CARD_PENALTY * time_fraction + home_reds * RED_CARD_BOOST * time_fraction)
 
     return lam_h_rem, lam_a_rem
 
@@ -211,21 +202,11 @@ def in_play_outcome_probs(lam_h_rem: float, lam_a_rem: float,
         P(Home scores delta_h more) * P(Away scores delta_a more)
         weighted by DC tau correction
     """
-    additional_goals = np.arange(max_additional + 1)
-
-    ph = poisson.pmf(additional_goals, lam_h_rem)
-    pa = poisson.pmf(additional_goals, lam_a_rem)
-    joint = np.outer(ph, pa)
-
-    # Apply tau correction for 0-0 remaining (i.e., no more goals = 0-0 fragment)
-    tau = np.ones_like(joint)
-    tau[0, 0] = max(0.01, 1.0 - lam_h_rem * lam_a_rem * rho)
-    tau[0, 1] = 1.0 + lam_h_rem * rho
-    tau[1, 0] = 1.0 + lam_a_rem * rho
-    if max_additional >= 1:
-        tau[1, 1] = 1.0 - rho
-    joint = joint * tau
-    joint = joint / joint.sum()
+    # Apply Frank Copula for bivariate dependency
+    # The copula already handles the exact 0-0 interaction and dependency
+    joint = bivariate_score_matrix(lam_h_rem, lam_a_rem, max_g=max_additional)
+    # Ensure it sums strictly to 1.0
+    joint = joint / np.sum(joint)
 
     p_home_win = 0.0
     p_draw     = 0.0
@@ -248,9 +229,9 @@ def in_play_outcome_probs(lam_h_rem: float, lam_a_rem: float,
         return {"home_win": 1/3, "draw": 1/3, "away_win": 1/3}
 
     return {
-        "home_win": round(p_home_win / total, 4),
-        "draw":     round(p_draw     / total, 4),
-        "away_win": round(p_away_win / total, 4),
+        "home_win": float(p_home_win / total),
+        "draw":     float(p_draw     / total),
+        "away_win": float(p_away_win / total),
     }
 
 

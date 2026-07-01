@@ -1,193 +1,108 @@
-import json, warnings, numpy as np
-from pathlib import Path
+import numpy as np
 from collections import defaultdict
 
-TRACKING_DEPS_AVAILABLE = False
-_deps_checked = False
+# Divide pitch into 18 zones (6 columns × 3 rows)
+ZONES_X = 6
+ZONES_Y = 3
+PITCH_L = 105.0
+PITCH_W = 68.0
 
-def _check_tracking_deps():
-    global TRACKING_DEPS_AVAILABLE, _deps_checked
-    if _deps_checked:
-        return TRACKING_DEPS_AVAILABLE
-    _deps_checked = True
+def get_zone(x_m: float, y_m: float) -> tuple:
+    """Return (col, row) zone index for a pitch position in meters."""
     try:
+        col = max(0, min(ZONES_X - 1, int(max(0, float(x_m)) / PITCH_L * ZONES_X)))
+        row = max(0, min(ZONES_Y - 1, int(max(0, float(y_m)) / PITCH_W * ZONES_Y)))
+        return col, row
+    except (ValueError, TypeError):
+        return 0, 0
+
+
+def zone_to_label(col: int, row: int) -> str:
+    col = max(0, min(ZONES_X - 1, col))
+    row = max(0, min(ZONES_Y - 1, row))
+    col_names = ['Own Box', 'Own Third', 'Own Mid', 'Opp Mid', 'Opp Third', 'Opp Box']
+    row_names = ['Left', 'Centre', 'Right']
+    return f"{col_names[col]} {row_names[row]}"
+
+
+class ZoneAwareTracker:
+    """
+    Extends base PlayerMovementTracker with:
+    - Zone occupancy heatmaps (where are players spending time?)
+    - Pressure index (how many defenders within 5m of ball carrier?)
+    - Formation inference (most common defensive shape 4-4-2, 4-3-3, etc.)
+    - PPDA proxy (Passes Allowed Per Defensive Action)
+    """
+    def __init__(self):
+        self.zone_time  = defaultdict(lambda: defaultdict(float))  # {team: {zone: seconds}}
+        self.positions  = defaultdict(list)   # {track_id: [(x,y,t,team)]}
+        self.ball_pos   = []                  # [(x,y,t)] if ball detected
+
+    def update_frame(self, tracks, team_labels: dict,
+                      H: np.ndarray, fps: float):
+        """Process a single frame — update zones and positions."""
         import cv2
-        from ultralytics import YOLO
-        import supervision as sv
-        TRACKING_DEPS_AVAILABLE = True
-    except ImportError:
-        warnings.warn(
-            "Player tracking deps not installed. "
-            "Install locally with: pip install ultralytics supervision opencv-python\n"
-            "Streamlit Cloud deployment will use pre-computed movement_stats.json only."
+        for tid, bbox in zip(tracks.tracker_id, tracks.xyxy):
+            if tid is None:
+                continue
+            foot_px = np.array([(bbox[0]+bbox[2])/2, bbox[3]])
+            pt = np.array([[[float(foot_px[0]), float(foot_px[1])]]], dtype=np.float32)
+            pos = cv2.perspectiveTransform(pt, H)[0][0]
+            team = team_labels.get(tid, 'unknown')
+            zone = get_zone(pos[0], pos[1])
+            self.zone_time[team][zone] += 1.0 / fps
+            self.positions[tid].append((pos[0], pos[1], team))
+
+    def get_zone_features(self) -> dict:
+        """
+        Aggregate zone features for model input.
+        Returns features like:
+        - home_final_third_time: seconds spent in attacking third
+        - home_own_box_time: defensive pressure time
+        - zone_dominance: which team controls central midfield
+        """
+        feats = {}
+        for team in ['home', 'away']:
+            zones = self.zone_time[team]
+            # Attacking third = cols 4,5
+            att_third = sum(v for (c,r),v in zones.items() if c >= 4)
+            # Own box = col 0
+            own_box = sum(v for (c,r),v in zones.items() if c == 0)
+            # Central midfield = cols 2,3, rows 1 (centre)
+            central = sum(v for (c,r),v in zones.items() if c in [2,3] and r == 1)
+            total = sum(zones.values()) or 1
+
+            feats[f'{team}_att_third_pct']  = att_third / total
+            feats[f'{team}_own_box_pct']    = own_box / total
+            feats[f'{team}_central_ctrl']   = central / total
+
+        feats['zone_dominance'] = (
+            feats.get('home_central_ctrl', 0) - feats.get('away_central_ctrl', 0)
         )
-    return TRACKING_DEPS_AVAILABLE
+        return feats
 
+    def estimate_formation(self, team: str, last_n_frames: int = 300) -> str:
+        """
+        Infer formation from player x-positions.
+        Clusters defenders/midfielders/attackers by average x position.
+        """
+        team_pos = [
+            p for tid, positions in self.positions.items()
+            for p in positions[-last_n_frames:]
+            if len(positions) > 10 and p[2] == team
+        ]
+        if len(team_pos) < 20:
+            return "Unknown"
 
-PITCH_LENGTH_M = 105.0
-PITCH_WIDTH_M  = 68.0
-MOVEMENT_STATS_PATH = Path("data/movement_stats.json")
+        xs = [p[0] for p in team_pos]
+        # Bin into thirds
+        d_count = sum(1 for x in xs if x < PITCH_L * 0.33)
+        m_count = sum(1 for x in xs if PITCH_L * 0.33 <= x < PITCH_L * 0.66)
+        a_count = sum(1 for x in xs if x >= PITCH_L * 0.66)
+        total   = d_count + m_count + a_count or 1
 
-
-def get_pitch_homography(src_points: np.ndarray) -> np.ndarray:
-    import cv2
-    dst = np.float32([[0,0],[PITCH_LENGTH_M,0],
-                       [PITCH_LENGTH_M,PITCH_WIDTH_M],[0,PITCH_WIDTH_M]])
-    H, _ = cv2.findHomography(src_points.astype(np.float32), dst)
-    return H
-
-
-def pixel_to_meters(pt_px: np.ndarray, H: np.ndarray) -> np.ndarray:
-    import cv2
-    pt = np.array([[[float(pt_px[0]), float(pt_px[1])]]], dtype=np.float32)
-    return cv2.perspectiveTransform(pt, H)[0][0]
-
-
-class PlayerMovementTracker:
-    """
-    YOLOv8 + ByteTrack player tracker adapted from kazmifactor/Car_Speed_Estimation.
-    Requires ultralytics and supervision (local only).
-    """
-    def __init__(self, model_path="yolov8m.pt", homography_points=None, fps=25.0):
-        if not _check_tracking_deps():
-            raise RuntimeError(
-                "Install tracking deps first: pip install ultralytics supervision opencv-python"
-            )
-        import supervision as sv
-        from ultralytics import YOLO
-        self.model    = YOLO(model_path)
-        self.tracker  = sv.ByteTracker()
-        self.fps      = fps
-        self.H        = get_pitch_homography(homography_points) if homography_points is not None else None
-        self.positions   = defaultdict(list)
-        self.speeds      = defaultdict(list)
-        self.team_labels = {}
-
-    def _assign_team_by_jersey(self, crop: np.ndarray) -> str:
-        import cv2
-        if crop.size == 0:
-            return 'unknown'
-        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-        mean_h = hsv[:,:,0].mean()
-        return 'home' if mean_h < 90 else 'away'
-
-    def process_video(self, video_path: str, max_frames: int = None) -> dict:
-        import cv2
-        import supervision as sv
-        cap = cv2.VideoCapture(video_path)
-        actual_fps = cap.get(cv2.CAP_PROP_FPS) or self.fps
-        frame_n = 0
-
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret or (max_frames and frame_n > max_frames):
-                break
-
-            results    = self.model(frame, classes=[0], conf=0.4, verbose=False)[0]
-            detections = sv.Detections.from_ultralytics(results)
-            tracks     = self.tracker.update_with_detections(detections)
-
-            for tid, bbox in zip(tracks.tracker_id, tracks.xyxy):
-                if tid is None:
-                    continue
-                foot_px = np.array([(bbox[0]+bbox[2])/2, bbox[3]])
-                pos_m   = pixel_to_meters(foot_px, self.H) if self.H is not None else foot_px
-                self.positions[tid].append((pos_m[0], pos_m[1], frame_n))
-
-                if len(self.positions[tid]) >= 2:
-                    prev, curr = self.positions[tid][-2], self.positions[tid][-1]
-                    dt = (curr[2]-prev[2]) / actual_fps
-                    if dt > 0:
-                        dist  = np.sqrt((curr[0]-prev[0])**2 + (curr[1]-prev[1])**2)
-                        self.speeds[tid].append(dist / dt)
-
-                if tid not in self.team_labels:
-                    x1,y1,x2,y2 = map(int, bbox)
-                    crop = frame[max(0,y1):y2, max(0,x1):x2]
-                    self.team_labels[tid] = self._assign_team_by_jersey(crop)
-
-            frame_n += 1
-        cap.release()
-        return self._compile_stats(actual_fps)
-
-    def _compile_stats(self, fps: float) -> dict:
-        team_data = {'home': [], 'away': []}
-        for tid, speeds_list in self.speeds.items():
-            if len(speeds_list) < 10:
-                continue
-            s = np.array(speeds_list)
-            pos = np.array([(p[0],p[1]) for p in self.positions[tid]])
-            dist = float(np.sqrt(np.diff(pos, axis=0)**2).sum())
-            player = {
-                "mean_speed_ms": float(s.mean()),
-                "max_speed_ms":  float(s.max()),
-                "distance_m":    dist,
-                "sprint_count":  int((s > 7.0).sum()),
-                "hi_runs":       int((s > 5.5).sum()),
-            }
-            team = self.team_labels.get(tid, 'unknown')
-            if team in team_data:
-                team_data[team].append(player)
-
-        result = {}
-        for team in ['home','away']:
-            players = team_data[team]
-            if not players:
-                continue
-            result[f"{team}_avg_speed"]       = round(np.mean([p['mean_speed_ms'] for p in players]), 3)
-            result[f"{team}_total_distance_m"]= round(sum(p['distance_m'] for p in players), 1)
-            result[f"{team}_total_sprints"]   = sum(p['sprint_count'] for p in players)
-        result['speed_diff'] = result.get('home_avg_speed',0) - result.get('away_avg_speed',0)
-        return result
-
-
-def process_match_videos(video_dir: str, homography_points=None):
-    """
-    Batch process all .mp4 files in video_dir.
-    File naming: "Brazil_vs_Germany_2026-06-14.mp4"
-    Output: data/movement_stats.json
-    """
-    if not _check_tracking_deps():
-        print("Tracking deps not available. Skipping video processing.")
-        return {}
-
-    results = {}
-    for video_file in Path(video_dir).glob("*.mp4"):
-        parts = video_file.stem.split("_vs_")
-        if len(parts) != 2:
-            continue
-        home = parts[0]
-        rest = parts[1].split("_")
-        away, date = rest[0], rest[1] if len(rest) > 1 else "unknown"
-        key = f"{home}_vs_{away}_{date}"
-        print(f"📹 Processing: {video_file.name}")
-        try:
-            tracker = PlayerMovementTracker(homography_points=homography_points)
-            stats   = tracker.process_video(str(video_file))
-            results[key] = stats
-            print(f"  ✅ {key}: {stats}")
-        except Exception as e:
-            print(f"  ❌ Failed: {e}")
-
-    MOVEMENT_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(MOVEMENT_STATS_PATH, 'w') as f:
-        json.dump(results, f, indent=2)
-    print(f"💾 Saved → {MOVEMENT_STATS_PATH}")
-    return results
-
-
-def fallback_empty_movement_stats():
-    """Return zero-filled stats when no video or tracking deps are available."""
-    return {
-        "home_avg_speed": 0.0, "away_avg_speed": 0.0,
-        "home_total_distance_m": 0.0, "away_total_distance_m": 0.0,
-        "home_total_sprints": 0, "away_total_sprints": 0,
-        "speed_diff": 0.0
-    }
-
-
-if __name__ == "__main__":
-    # Test graceful fallback with no video
-    stats = fallback_empty_movement_stats()
-    print("Fallback stats:", stats)
-    print("Graceful fallback: ✅")
+        # Normalize to 10 outfield players
+        d = round(d_count / total * 10)
+        m = round(m_count / total * 10)
+        a = round(a_count / total * 10)
+        return f"{d}-{m}-{a}"

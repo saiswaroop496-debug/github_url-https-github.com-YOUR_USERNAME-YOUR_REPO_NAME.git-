@@ -1,56 +1,68 @@
-import json, time, logging
-from pathlib import Path
 import pandas as pd
 import numpy as np
+from datetime import datetime
 
-LOG_PATH = Path("bets_log.jsonl")
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("bet_tracker")
+class CLVTracker:
+    """
+    Automated Closing Line Value (CLV) Ledger.
+    Tracks all placed bets and compares them to the closing line to attribute performance.
+    """
+    def __init__(self, ledger_path="betting_ledger.csv"):
+        self.ledger_path = ledger_path
+        self.bets = []
 
-def log_bet(match: str, market: str, outcome: str, model_prob: float, decimal_odds: float, no_vig_prob: float, edge: float, kelly_fraction: float, stake_units: float, result: str = None, closing_odds: float = None, btts_prob: float = None, over25_prob: float = None) -> dict:
-    clv_pct = None
-    if closing_odds and decimal_odds and decimal_odds > 1.0:
-        clv_pct = round((closing_odds / decimal_odds) - 1, 4)
+    def log_bet(self, fixture_id, market, placed_odds, stake, expected_value, model_prob):
+        """Log a newly placed bet."""
+        bet = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "fixture_id": fixture_id,
+            "market": market,
+            "placed_odds": placed_odds,
+            "stake": stake,
+            "expected_value": expected_value,
+            "model_prob": model_prob,
+            "closing_odds": None,
+            "result": None
+        }
+        self.bets.append(bet)
+        
+    def update_closing_line(self, fixture_id, market, closing_odds):
+        """Update the ledger with the sharp closing odds just before kickoff."""
+        for bet in self.bets:
+            if bet["fixture_id"] == fixture_id and bet["market"] == market:
+                bet["closing_odds"] = closing_odds
+                
+    def settle_bet(self, fixture_id, market, won: bool):
+        """Settle a bet post-match."""
+        for bet in self.bets:
+            if bet["fixture_id"] == fixture_id and bet["market"] == market:
+                bet["result"] = 1 if won else 0
 
-    pnl = None
-    if result == 'win':
-        pnl = round(stake_units * (decimal_odds - 1), 3)
-    elif result == 'loss':
-        pnl = round(-stake_units, 3)
-
-    record = {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "match": match, "market": market, "outcome": outcome, "model_prob": round(model_prob, 4),
-        "decimal_odds": round(decimal_odds, 3), "no_vig_prob": round(no_vig_prob, 4), "edge": round(edge, 4),
-        "kelly_fraction": round(kelly_fraction, 4), "stake_units": round(stake_units, 3), "result": result,
-        "closing_odds": closing_odds, "clv_pct": clv_pct, "pnl_units": pnl, "btts_prob": btts_prob, "over25_prob": over25_prob,
-    }
-
-    with open(LOG_PATH, 'a') as f:
-        f.write(json.dumps(record) + '\n')
-    logger.info(f"BET | {match} | {outcome} | edge={edge:+.2%} | stake={stake_units:.2f}u | result={result or 'pending'}")
-    return record
-
-def clv_report(min_bets: int = 20) -> dict:
-    if not LOG_PATH.exists():
-        return {"error": "No bets logged yet."}
-    df = pd.read_json(LOG_PATH, lines=True)
-    if len(df) == 0:
-        return {"error": "Empty bet log."}
-    report = {"total_bets": len(df), "settled": int(df['result'].notna().sum()), "clv_eligible": int(df['clv_pct'].notna().sum()), "pending": int(df['result'].isna().sum())}
-    settled = df[df['result'].notna()].copy()
-    if len(settled) > 0:
-        wins = (settled['result'] == 'win').sum()
-        total_stake = settled['stake_units'].sum()
-        total_pnl   = settled['pnl_units'].sum()
-        report.update({"win_rate": round(wins / len(settled), 4), "total_pnl": round(float(total_pnl), 3), "roi": round(float(total_pnl / total_stake) if total_stake > 0 else 0, 4)})
-    clv_df = df[df['clv_pct'].notna()].copy()
-    if len(clv_df) > 0:
-        report.update({"mean_clv": round(float(clv_df['clv_pct'].mean()), 4), "median_clv": round(float(clv_df['clv_pct'].median()), 4), "clv_positive_pct": round(float((clv_df['clv_pct'] > 0).mean()), 4), "clv_by_market": clv_df.groupby('market')['clv_pct'].mean().round(4).to_dict()})
-        mean_clv = report['mean_clv']
-        if mean_clv > 0.02: report['clv_verdict'] = "STRONG EDGE — CLV > 2% sustained"
-        elif mean_clv > 0.015: report['clv_verdict'] = "GENUINE EDGE — CLV > 1.5%"
-        elif mean_clv > 0.005: report['clv_verdict'] = "MARGINAL EDGE — monitor closely"
-        else: report['clv_verdict'] = "NO PROVEN EDGE — do not scale stakes"
-    if len(df) < min_bets: report['warning'] = f"Only {len(df)} bets. Need {min_bets}+ for reliable CLV."
-    return report
+    def generate_weekly_report(self) -> dict:
+        """Calculate CLV and Return on Investment (ROI)."""
+        if not self.bets:
+            return {"total_bets": 0, "clv_avg": 0.0, "roi": 0.0}
+            
+        df = pd.DataFrame(self.bets)
+        
+        # Calculate CLV: (placed_odds / closing_odds) - 1
+        # E.g. backed at 2.20, closes at 2.00 -> CLV = (2.20 / 2.00) - 1 = +10%
+        df['clv'] = np.where(df['closing_odds'].notna(), 
+                             (df['placed_odds'] / df['closing_odds']) - 1.0, 
+                             0.0)
+                             
+        clv_avg = df['clv'].mean()
+        
+        # Calculate ROI if settled
+        settled = df[df['result'].notna()]
+        if not settled.empty:
+            profit = (settled['result'] * settled['placed_odds'] * settled['stake']) - settled['stake']
+            roi = profit.sum() / settled['stake'].sum()
+        else:
+            roi = 0.0
+            
+        return {
+            "total_bets": len(self.bets),
+            "clv_avg": round(clv_avg, 4),
+            "roi": round(roi, 4)
+        }
