@@ -332,7 +332,7 @@ def main():
     
         final_probs = meta_lr.predict_proba(augmented_test)
     
-        # Use calibrated probabilities directly
+        # Use calibrated probabilities directly (argmax is invariant to Temp Scaling)
         preds = np.argmax(final_probs, axis=1)
         
         acc = accuracy_score(y_test_out, preds)

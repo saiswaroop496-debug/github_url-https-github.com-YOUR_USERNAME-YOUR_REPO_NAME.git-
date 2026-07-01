@@ -1,7 +1,7 @@
 {
   "version": "6.2",
-  "build": "v6.2_20260701_221514_932419cc",
-  "timestamp": "20260701_221514",
+  "build": "v6.2_20260701_221237_464f12d3",
+  "timestamp": "20260701_221237",
   "feature_cols": [
     "home_glicko",
     "home_rd",
@@ -21,12 +21,12 @@
     "press_proxy_diff"
   ],
   "metrics": {
-    "accuracy": 0.46739130434782605,
+    "accuracy": 0.37267080745341613,
     "log_loss": 1.0695495524929197,
     "brier_score": null,
     "ece": null,
     "draw_recall": null,
     "fold_std": null
   },
-  "promoted": true
+  "promoted": false
 }
