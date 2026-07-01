@@ -128,6 +128,12 @@ class TwoHeadMetaLearner:
     # ── INFERENCE ─────────────────────────────────────────────────────────────
     def _raw_predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Raw probabilities from both gates — no calibration applied."""
+        # Backward compatibility patch for loading sklearn 1.8.0 pickles in sklearn 1.5.2
+        if not hasattr(self.draw_gate, "multi_class"):
+            self.draw_gate.multi_class = "auto"
+        if not hasattr(self.direction_gate, "multi_class"):
+            self.direction_gate.multi_class = "auto"
+
         p_draw      = self.draw_gate.predict_proba(X)[:, 1]
         p_hw_cond   = self.direction_gate.predict_proba(X)[:, 1]
         p_home      = (1 - p_draw) * p_hw_cond
