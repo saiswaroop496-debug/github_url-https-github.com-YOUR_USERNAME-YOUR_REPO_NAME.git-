@@ -348,13 +348,14 @@ def _cached_inference(home_team: str, away_team: str,
     dc_result = _dc_predict(home_team, away_team, venue_factor)
     if dc_result:
         dc_probs = np.array([dc_result["home_win"], dc_result["draw"], dc_result["away_win"]])
-        ensemble_probs = 0.5 * base_blend + 0.5 * dc_probs
+        # 6. Meta-learner gate with augmented features
+        meta_input = np.hstack([base_blend, dc_probs]).reshape(1, -1)
     else:
-        ensemble_probs = base_blend
+        # Fallback if DC fails (pad with equal probs)
+        dc_probs = np.array([0.333, 0.334, 0.333])
+        meta_input = np.hstack([base_blend, dc_probs]).reshape(1, -1)
         dc_result = {}
 
-    # 6. Meta-learner gate
-    meta_input = ensemble_probs.reshape(1, -1)
     final_proba = _meta_learner.predict_proba(meta_input)[0]
 
     final_proba = np.clip(final_proba, 0.05, 0.95)

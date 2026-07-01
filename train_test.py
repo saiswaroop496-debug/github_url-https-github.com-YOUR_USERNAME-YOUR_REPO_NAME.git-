@@ -317,12 +317,9 @@ def main():
         pred_a_tr = np.clip((cat_a.predict(X_train) + xgb_a.predict(X_train) + ridge_a.predict(X_train)) / 3.0, 0.3, 4.0)
         ml_probs_train = xg_to_probs(pred_h_tr, pred_a_tr)
 
-        # Blend with DC (50/50)
-        blended_test = 0.5 * ml_probs_test + 0.5 * dc_probs[test_idx]
-        blended_test /= blended_test.sum(axis=1, keepdims=True)
-
-        blended_train = 0.5 * ml_probs_train + 0.5 * dc_probs[train_idx]
-        blended_train /= blended_train.sum(axis=1, keepdims=True)
+        # Feed ML probabilities and DC probabilities as 6 features to the meta-learner
+        augmented_test = np.hstack([ml_probs_test, dc_probs[test_idx]])
+        augmented_train = np.hstack([ml_probs_train, dc_probs[train_idx]])
 
         # Meta-Learner with SMOTE and recalibration
         from models.meta_learner import fit_meta_learner, predict_with_draw_threshold
@@ -331,20 +328,12 @@ def main():
         label_map = {0: 'Home Win', 1: 'Draw', 2: 'Away Win'}
         y_train_str = np.array([label_map[y] for y in y_train_out])
         
-        meta_lr = fit_meta_learner(blended_train, y_train_str)
+        meta_lr = fit_meta_learner(augmented_train, y_train_str)
     
-        final_probs = meta_lr.predict_proba(blended_test)
+        final_probs = meta_lr.predict_proba(augmented_test)
     
-        # Metrics using new TwoHead architecture threshold
-        preds_str, _ = predict_with_draw_threshold(
-            meta_lr, 
-            blended_test, 
-            draw_thresh=0.30
-        )
-        
-        # Convert predictions back to integers
-        inv_map = {'Home Win': 0, 'Draw': 1, 'Away Win': 2}
-        preds = np.array([inv_map[p] for p in preds_str])
+        # Use calibrated probabilities directly
+        preds = np.argmax(final_probs, axis=1)
         
         acc = accuracy_score(y_test_out, preds)
         ll = log_loss(y_test_out, final_probs, labels=[0, 1, 2])

@@ -60,6 +60,8 @@ class TwoHeadMetaLearner:
         self.calibrators = {}   # per-market isotonic calibrators
         self.classes_ = ['Home Win', 'Draw', 'Away Win']
         self.is_fitted = False
+        self.temperature = 1.0
+        self.temperature_bounds = (1.0, 3.0)
 
     def fit(self, X: np.ndarray, y: np.ndarray):
         """Fit both heads on OOF training split with SMOTE."""
@@ -79,11 +81,8 @@ class TwoHeadMetaLearner:
         self.is_fitted = True
         return self
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """
-        Produce calibrated 3-class probabilities.
-        p_draw from draw_gate, p_home/p_away from direction_gate.
-        """
+    def _raw_predict(self, X: np.ndarray) -> np.ndarray:
+        """Gates output before temperature scaling."""
         # Patch for Scikit-Learn version mismatch during unpickling
         if not hasattr(self.draw_gate, 'multi_class'):
             self.draw_gate.multi_class = 'auto'
@@ -94,11 +93,21 @@ class TwoHeadMetaLearner:
         p_hw_cond   = self.direction_gate.predict_proba(X)[:, 1]
         p_home      = (1 - p_draw) * p_hw_cond
         p_away      = (1 - p_draw) * (1 - p_hw_cond)
-        proba       = np.column_stack([p_home, p_draw, p_away])
+        return np.column_stack([p_home, p_draw, p_away])
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Full pipeline: gates -> isotonic -> temperature -> normalize."""
+        proba = self._raw_predict(X)
 
         # Apply per-market isotonic calibration if fitted
         if self.calibrators:
             proba = self._apply_calibration(proba)
+
+        # Temperature scaling
+        if self.temperature != 1.0:
+            log_p = np.log(np.clip(proba, 1e-9, 1.0)) / self.temperature
+            exp_p = np.exp(log_p - log_p.max(axis=1, keepdims=True))
+            proba = exp_p / exp_p.sum(axis=1, keepdims=True)
 
         # Ensure valid probability simplex
         proba = np.clip(proba, 0.02, 0.96)
@@ -114,17 +123,35 @@ class TwoHeadMetaLearner:
 
     def fit_calibration(self, X_cal: np.ndarray, y_cal: np.ndarray):
         """
-        Fit per-market Isotonic Regression calibrators on held-out data.
+        Fit per-market Isotonic Regression calibrators + Temperature Scaling.
         Call AFTER fit(), on a separate chronological slice.
         """
-        proba_cal = self.predict_proba(X_cal)
+        raw_proba = self._raw_predict(X_cal)
         for i, market in enumerate(self.classes_):
             iso = IsotonicRegression(out_of_bounds='clip',
                                      y_min=0.05, y_max=0.90)
             y_bin = (y_cal == market).astype(float)
-            iso.fit(proba_cal[:, i], y_bin)
+            iso.fit(raw_proba[:, i], y_bin)
             self.calibrators[market] = iso
+            
+        self._fit_temperature(raw_proba, y_cal)
         return self
+
+    def _fit_temperature(self, proba: np.ndarray, y_true: np.ndarray):
+        """Fit T on validation log-loss. Bounds (1.0, 3.0) prevent over-sharpening."""
+        from scipy.optimize import minimize_scalar
+        from sklearn.metrics import log_loss
+
+        def nll(T):
+            # Scale logits via log(p) / T then renormalize
+            log_p = np.log(np.clip(proba, 1e-9, 1.0)) / max(T, 0.1)
+            exp_p = np.exp(log_p - log_p.max(axis=1, keepdims=True))
+            scaled = exp_p / exp_p.sum(axis=1, keepdims=True)
+            return log_loss(y_true, scaled, labels=self.classes_)
+
+        result = minimize_scalar(nll, bounds=self.temperature_bounds, method='bounded')
+        self.temperature = result.x
+        print(f"  Temperature T={self.temperature:.4f}")
 
     def compute_ece(self, X: np.ndarray, y: np.ndarray,
                      n_bins: int = 10) -> float:
@@ -148,11 +175,11 @@ class TwoHeadMetaLearner:
 def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray) -> TwoHeadMetaLearner:
     """
     Full meta-learner training:
-    1. Train on first 85% of OOF (chronological)
-    2. Calibrate isotonic on last 15% of OOF
+    1. Train on first 75% of OOF (chronological)
+    2. Calibrate isotonic on last 25% of OOF
     """
     n = len(y_oof)
-    cal_split = int(n * 0.85)
+    cal_split = int(n * 0.75)
 
     model = TwoHeadMetaLearner(C_direction=0.5)
     model.fit(oof_preds[:cal_split], y_oof[:cal_split])
