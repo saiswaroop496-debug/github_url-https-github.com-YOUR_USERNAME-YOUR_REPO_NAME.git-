@@ -551,7 +551,10 @@ def export_model(model, scaler, meta_learner, feature_cols: list,
     build_dir  = MODEL_VERSIONS_DIR / build_name
     build_dir.mkdir()
 
-    joblib.dump(model,        build_dir / "base_learners.joblib")
+    cat_h, cat_a, xgb_h, xgb_a, ridge_h, ridge_a = model
+    xgb_h.save_model(build_dir / "xgb_h.json")
+    xgb_a.save_model(build_dir / "xgb_a.json")
+    joblib.dump([cat_h, cat_a, None, None, ridge_h, ridge_a], build_dir / "base_learners.joblib")
     if scaler is not None:
         joblib.dump(scaler,       build_dir / "scaler.joblib")
     joblib.dump(meta_learner, build_dir / "meta_learner.joblib")

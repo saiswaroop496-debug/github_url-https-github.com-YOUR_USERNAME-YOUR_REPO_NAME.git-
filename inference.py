@@ -86,6 +86,14 @@ def _load_ml_artifacts():
     print("  [LOADING] Heavy ML artifacts...")
 
     _base_learners = joblib.load(MODEL_DIR / "base_learners.joblib")
+    # Reconstruct native XGBoost models
+    xgb_h = xgb.XGBRegressor()
+    xgb_h.load_model(MODEL_DIR / "xgb_h.json")
+    xgb_a = xgb.XGBRegressor()
+    xgb_a.load_model(MODEL_DIR / "xgb_a.json")
+    _base_learners[2] = xgb_h
+    _base_learners[3] = xgb_a
+
     _meta_learner  = joblib.load(MODEL_DIR / "meta_learner.joblib")
 
     scaler_path = MODEL_DIR / "scaler.joblib"
