@@ -1,385 +1,385 @@
 {
   "Algeria": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1567.66,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 95.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Argentina": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1639.97,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 70.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Australia": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1505.34,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 89.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Austria": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1530.67,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 94.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Belgium": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1554.51,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 84.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Bosnia and Herzegovina": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1419.11,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 105.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Brazil": {
     "draw_rate": 0.015,
-    "glicko": 1500.0,
+    "glicko": 1619.59,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 62.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Canada": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1483.15,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 94.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Cape Verde": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1473.46,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 113.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Colombia": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1586.59,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 66.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Croatia": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1515.78,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 70.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Czech Republic": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1418.29,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 99.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "DR Congo": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1450.1,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 110.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Denmark": {
     "draw_rate": 0.29,
-    "glicko": 1500.0,
+    "glicko": 1503.49,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 129.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Ecuador": {
     "draw_rate": 0.019,
-    "glicko": 1500.0,
+    "glicko": 1523.39,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 77.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Egypt": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1493.37,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 90.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "England": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1568.32,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 82.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "France": {
     "draw_rate": 0.016,
-    "glicko": 1500.0,
+    "glicko": 1634.18,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 68.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Germany": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1515.73,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 78.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Ghana": {
     "draw_rate": 0.033,
-    "glicko": 1500.0,
+    "glicko": 1448.17,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 100.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Haiti": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1447.65,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 115.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Iran": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1491.32,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 90.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Iraq": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1419.46,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 90.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Ivory Coast": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1522.57,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 104.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Japan": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1562.12,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 73.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Jordan": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1421.83,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 87.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Mexico": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1537.94,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 59.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Morocco": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1568.83,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 86.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Netherlands": {
     "draw_rate": 0.019,
-    "glicko": 1500.0,
+    "glicko": 1533.65,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 77.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "New Zealand": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1395.93,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 109.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Norway": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1494.99,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 100.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Panama": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1356.92,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 88.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Paraguay": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1489.21,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 84.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Portugal": {
     "draw_rate": 0.018,
-    "glicko": 1500.0,
+    "glicko": 1589.82,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 74.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Qatar": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1410.71,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 83.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Saudi Arabia": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1413.52,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 75.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Scotland": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1443.62,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 97.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Senegal": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1493.03,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 94.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "South Africa": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1465.6,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 104.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "South Korea": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1513.5,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 77.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Spain": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1624.22,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 65.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Sweden": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1454.72,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 90.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Switzerland": {
     "draw_rate": 0.021,
-    "glicko": 1500.0,
+    "glicko": 1492.89,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 83.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Tunisia": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1484.75,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 88.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Turkey": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1481.12,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 98.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "USA": {
     "draw_rate": 0.29,
-    "glicko": 1500.0,
+    "glicko": 1491.82,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 129.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Uruguay": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1540.29,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 70.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   },
   "Uzbekistan": {
     "draw_rate": 0.0,
-    "glicko": 1500.0,
+    "glicko": 1407.06,
     "neutral_venue_form": 0.5,
-    "rd": 200.0,
+    "rd": 92.0,
     "sigma": 0.06,
     "xg_rolling_3": 1.2
   }

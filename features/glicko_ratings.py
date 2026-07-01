@@ -39,7 +39,8 @@ class Glicko2RatingSystem:
         if not force_recompute and cache_path.exists():
             print(f"  [CACHE HIT] Glicko: {cache_key}")
             with open(cache_path, 'rb') as f:
-                return pickle.load(f)
+                cached_df, self.ratings = pickle.load(f)
+                return cached_df
 
         print(f"  [COMPUTING] Glicko-2 from scratch ({len(df)} matches)...")
 
@@ -99,7 +100,7 @@ class Glicko2RatingSystem:
         df['glicko_uncertainty_gap'] = glicko_gap
         
         with open(cache_path, 'wb') as f:
-            pickle.dump(df, f)
+            pickle.dump((df, self.ratings), f)
         print(f"  [CACHED] Saved to {cache_path}")
         
         return df
