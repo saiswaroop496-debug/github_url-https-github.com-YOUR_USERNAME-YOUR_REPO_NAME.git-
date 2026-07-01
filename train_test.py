@@ -1,7 +1,7 @@
 """
-V5.1 FIFA World Cup Quantitative Engine â€” Full Train & Test Pipeline
+V7.0 FIFA World Cup Quantitative Engine — Full Train & Test Pipeline
 =====================================================================
-OPTIMIZED VERSION: Vectorized Dixon-Coles, fast walk-forward.
+V7 UPGRADE: Temperature-scaled logit calibration, augmented meta-learner.
 """
 
 import sys, os, time, warnings
@@ -134,7 +134,7 @@ def xg_to_probs(pred_h, pred_a):
 
 def main():
     print("=" * 70)
-    print("  V5.1 QUANTITATIVE ENGINE â€” TRAIN & TEST REPORT")
+    print("  V7.0 QUANTITATIVE ENGINE — TRAIN & TEST REPORT")
     print("=" * 70)
 
     t_start = time.time()
@@ -448,10 +448,10 @@ def main():
     random_acc = prior.max()
     print(f"  Class-Prior Baseline:  Acc = {random_acc*100:.1f}%,  Log-Loss = {random_ll:.4f}")
     print(f"  Dixon-Coles:           Acc = {dc_acc*100:.1f}%,  Log-Loss = {dc_ll:.4f}")
-    print(f"  V5.1 Ensemble (WF):    Acc = {np.mean(accs)*100:.1f}%,  Log-Loss = {np.mean(lls):.4f}")
+    print(f"  V7.0 Ensemble (WF):    Acc = {np.mean(accs)*100:.1f}%,  Log-Loss = {np.mean(lls):.4f}")
 
     improvement = (np.mean(accs) - random_acc) / random_acc * 100
-    print(f"\n  V5.1 vs Baseline:  {improvement:+.1f}% relative accuracy improvement")
+    print(f"\n  V7.0 vs Baseline:  {improvement:+.1f}% relative accuracy improvement")
 
     elapsed = time.time() - t_start
     print(f"\n{'='*70}")
@@ -465,6 +465,11 @@ def main():
     deployment_metrics = {
         "accuracy": real_accuracy,
         "log_loss": real_log_loss,
+        "brier_score": float(np.mean(briers)),
+        "ece": float(np.mean(eces)),
+        "fold_std": float(np.std(accs)),
+        "draw_recall": float(cm[1][1] / max(cm[1].sum(), 1)),
+        "n_matches": int(len(form_df)),
     }
 
     # Evaluate against deployment gate
@@ -516,7 +521,7 @@ def main():
                     metrics=deployment_metrics,
                     github_url="https://github.com/saiswaroop496-debug/github_url-https-github.com-YOUR_USERNAME-YOUR_REPO_NAME.git-",
                     api_key=os.getenv("RAPIDAPI_KEY", ""),
-                    version_tag="V6.2",
+                version_tag="V7.0",
                 )
             else:
                 print("Skipping deployment due to --auto-deploy=false flag.")
@@ -535,7 +540,7 @@ MODEL_VERSIONS_DIR = Path("model_versions")
 MODEL_VERSIONS_DIR.mkdir(exist_ok=True)
 
 def export_model(model, scaler, meta_learner, feature_cols: list,
-                 metrics: dict, version: str = "6.2"):
+                 metrics: dict, version: str = "7.0"):
     """
     Export model artifacts with version manifest.
     Automatically increments build number via hash.

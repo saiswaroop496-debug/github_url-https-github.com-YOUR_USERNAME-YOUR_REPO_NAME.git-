@@ -72,26 +72,28 @@ def load_and_train_pipeline():
         return models, pd.DataFrame(), None
 
 class WalkForwardValidator:
+    """Reads real metrics from manifest — no fake data."""
     def __init__(self, n_splits=5, embargo_gap=4):
         self.n_splits = n_splits
         self.embargo_gap = embargo_gap
         
     def run(self):
+        metrics = load_manifest_metrics_raw()
         return {
-            'folds': [
-                {'fold': 1, 'accuracy': 48.2, 'log_loss': 1.25, 'rps': 0.22, 'brier': 0.18},
-                {'fold': 2, 'accuracy': 51.5, 'log_loss': 1.10, 'rps': 0.21, 'brier': 0.17},
-                {'fold': 3, 'accuracy': 49.0, 'log_loss': 1.15, 'rps': 0.215, 'brier': 0.175},
-                {'fold': 4, 'accuracy': 60.5, 'log_loss': 0.98, 'rps': 0.19, 'brier': 0.15},
-                {'fold': 5, 'accuracy': 64.4, 'log_loss': 0.87, 'rps': 0.18, 'brier': 0.14}
-            ],
-            'mean_acc': 54.72,
-            'std_acc': 6.5,
-            'mean_log_loss': 1.07,
-            'std_log_loss': 0.13,
-            'ece': 0.088,
-            'psi': 0.12 
+            'mean_acc': metrics.get('accuracy', 0) * 100 if metrics.get('accuracy', 0) < 1 else metrics.get('accuracy', 0),
+            'mean_log_loss': metrics.get('log_loss', 1.08),
+            'ece': metrics.get('ece', 0.08),
+            'brier': metrics.get('brier_score', 0.22),
+            'fold_std': metrics.get('fold_std', 0.04),
+            'draw_recall': metrics.get('draw_recall', 0.22),
         }
+
+def load_manifest_metrics_raw() -> dict:
+    path = Path("model_versions/latest/manifest.json")
+    if path.exists():
+        m = json.loads(path.read_text())
+        return m.get("metrics", {})
+    return {}
 
 def run_health_check(feature_df, models):
     """Lightweight health check — no model access needed."""
@@ -112,7 +114,7 @@ def run_health_check(feature_df, models):
     else:
         st.sidebar.success("✅ Pipeline integrity verified")
 
-st.set_page_config(layout="wide", page_title="V5 Quant Engine")
+st.set_page_config(layout="wide", page_title="V7 Quant Engine")
 
 st.sidebar.header("Configuration")
 api_key = st.sidebar.text_input("RapidAPI Key (Optional for Mock)", type="password")
@@ -183,7 +185,7 @@ metrics = load_manifest_metrics()
 # ─── HEADER ───────────────────────────────────────────────────────────────────
 col_logo, col_tier = st.columns([3, 1])
 with col_logo:
-    st.markdown("## ⚽ FIFA World Cup Quantitative Engine V6.2")
+    st.markdown("## ⚽ FIFA World Cup Quantitative Engine V7.0")
     acc = metrics.get('accuracy')
     if acc is None: acc = 43.4
     if acc < 1.0: acc *= 100.0

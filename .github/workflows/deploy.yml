@@ -1,4 +1,4 @@
-name: V6.2 Validate, Gate & Deploy
+name: V7 Validate, Gate & Deploy
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
       - name: Run train_test.py
         env:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
-        run: python train_test.py 2>&1 | tee validation_output.txt
+        run: python train_test.py --auto-deploy=false 2>&1 | tee validation_output.txt
       - name: Evaluate gates
         id: gate
         run: |
@@ -77,7 +77,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         run: |
-          MSG="🔴 *V6.2 CI FAILURE*%0AAccuracy: ${{ needs.validate.outputs.accuracy }}%25 (gate: 43.0%25)%0ALog-Loss: ${{ needs.validate.outputs.log_loss }} (gate: 1.10)%0AAuto-rollback executed. Last good model restored."
+          MSG="🔴 *V7 CI FAILURE*%0AAccuracy: ${{ needs.validate.outputs.accuracy }}%25 (gate: 43.0%25)%0ALog-Loss: ${{ needs.validate.outputs.log_loss }} (gate: 1.10)%0AAuto-rollback executed. Last good model restored."
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHANNEL_ID}" -d "text=${MSG}" -d "parse_mode=Markdown" || echo "Telegram notify failed"
   deploy:
     needs: validate

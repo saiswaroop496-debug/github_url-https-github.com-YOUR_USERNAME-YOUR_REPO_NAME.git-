@@ -85,7 +85,7 @@ def save_model_metadata(metrics: dict, repo_dir: Path):
     This file IS committed  Streamlit app reads it to display live stats.
     """
     card = {
-        "version": "V6.0",
+        "version": "V7.0",
         "deployed_at": datetime.utcnow().isoformat() + "Z",
         "accuracy": metrics.get("accuracy", 0),
         "log_loss": metrics.get("log_loss", 0),
@@ -144,7 +144,7 @@ def deploy(
     metrics: dict,
     github_url: str,
     api_key: str = "",
-    version_tag: str = "V6.0",
+    version_tag: str = "V7.0",
     repo_dir: Path = None,
 ):
     """
