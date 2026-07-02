@@ -25,6 +25,7 @@ import sys
 try:
     from imblearn.pipeline import Pipeline as _ImbPipeline  # noqa: F401
     from models.meta_learner import SafeSMOTE as _SafeSMOTE  # noqa: F401
+    from models.temperature_scaler import TemperatureScaler as _TemperatureScaler # noqa: F401
 except ImportError as _e:
     warnings.warn(f"imbalanced-learn not installed on cloud. Using sklearn Pipeline mock for deserialization: {_e}")
     # Inject a mock so joblib.load() can successfully unpickle the object
