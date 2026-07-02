@@ -416,67 +416,35 @@ def _cached_inference(home_team: str, away_team: str,
     from train_test import xg_to_probs
     base_blend = xg_to_probs(pred_h, pred_a)[0]
 
-    # 5. Dixon-Coles prediction
-    dc_result = _dc_predict(home_team, away_team, venue_factor)
+    # 6. Meta-learner gate with augmented features
     if dc_result:
         dc_probs = np.array([dc_result["home_win"], dc_result["draw"], dc_result["away_win"]])
-        # 6. Meta-learner gate with augmented features
-        meta_input = np.hstack([base_blend, dc_probs]).reshape(1, -1)
     else:
         # Fallback if DC fails (pad with equal probs)
         dc_probs = np.array([0.333, 0.334, 0.333])
-        meta_input = np.hstack([base_blend, dc_probs]).reshape(1, -1)
         dc_result = {}
-
-    final_proba = _meta_learner.predict_proba(meta_input)[0]
-
-    final_proba = np.clip(final_proba, 0.05, 0.95)
-    final_proba = final_proba / final_proba.sum()
-
-    classes = list(_meta_learner.classes_)
-    ph_idx = classes.index("Home Win") if "Home Win" in classes else classes.index(0)
-    pd_idx = classes.index("Draw") if "Draw" in classes else classes.index(1)
-    pa_idx = classes.index("Away Win") if "Away Win" in classes else classes.index(2)
-
-    ph, pd, pa = float(final_proba[ph_idx]), float(final_proba[pd_idx]), float(final_proba[pa_idx])
-
-    draw_affinity_val = float(X[_feature_cols.index("draw_affinity")])
-    DRAW_THRESH = 0.34
-    if pd >= DRAW_THRESH and draw_affinity_val >= 0.45:
-        final_pick = "Draw"
-    else:
-        final_pick = ["Home Win", "Draw", "Away Win"][int(np.argmax(final_proba))]
-
-    ECE_CURRENT = 0.0813
-    fold_std = 0.0283
-    if ECE_CURRENT < 0.05 and fold_std < 0.04:
-        confidence = "HIGH CONFIDENCE"
-    elif ECE_CURRENT < 0.08 and fold_std < 0.06:
-        confidence = "MODERATE CONFIDENCE"
-    else:
-        confidence = "LOW CONFIDENCE — reduced stake recommended"
+        
+    # The meta-learner expects 9 features: [ML, DC, Prior]
+    # We will inject the market odds prior later if provided, but for caching purposes
+    # we return the ML and DC probs, and do the meta-learner step outside the cache.
+    # Wait, the meta-learner runs inside _cached_inference!
+    # If we want to use live odds, we can't cache the result based on odds.
+    # Let's just return the raw inputs and let `run_inference` call the meta-learner.
+    pass # We will fix this by moving meta-learner evaluation to run_inference
 
     return json.dumps({
         "home_team":      home_team,
         "away_team":      away_team,
-        "home_win_prob":  round(ph, 4),
-        "draw_prob":      round(pd, 4),
-        "away_win_prob":  round(pa, 4),
-        "final_pick":     final_pick,
-        "confidence":     confidence,
-        "no_vig_edge":    None,
-        "best_bet":       None,
-        "kelly_fraction": None,
-        "all_edges":      None,
-        "btts_yes":       dc_result.get("btts_yes"),
-        "over_25":        dc_result.get("over_25"),
-        "regime_filtered":False,
+        "base_blend":     base_blend.tolist(),
+        "dc_probs":       dc_probs.tolist(),
+        "dc_result":      dc_result,
         "signals": {
-            "kalman_velocity_diff": float(X[_feature_cols.index("kalman_velocity_diff")]) if "kalman_velocity_diff" in _feature_cols else 0.0
-        },
-        "model_version":  "7.1",
-        "timestamp":      datetime.now(timezone.utc).isoformat()
+            "kalman_velocity_diff": float(X[_feature_cols.index("kalman_velocity_diff")]) if "kalman_velocity_diff" in _feature_cols else 0.0,
+            "draw_affinity":        float(X[_feature_cols.index("draw_affinity")]) if "draw_affinity" in _feature_cols else 0.0
+        }
     })
+
+
 
 def run_inference(home_team: str, away_team: str,
                    venue_factor: float = 0.3,
@@ -489,7 +457,11 @@ def run_inference(home_team: str, away_team: str,
                    away_goals_live: int = None,
                    red_cards: dict = None,
                    live_state: dict = None,
-                   match_period: str = "regular") -> dict:
+                   match_period: str = "regular",
+                   home_lineup: list = None,
+                   home_expected_xi: list = None,
+                   away_lineup: list = None,
+                   away_expected_xi: list = None) -> dict:
     """
     Unified inference entry point.
     If elapsed_minutes is provided → In-Play mode (DC only).
@@ -543,7 +515,61 @@ def run_inference(home_team: str, away_team: str,
         # ── PRE-MATCH: Full ML ensemble + Match Rules ─────────────────────
         states_hash = _get_states_hash()
         result_json = _cached_inference(home_team, away_team, venue_factor, stage, states_hash)
-        result = json.loads(result_json)
+        cached = json.loads(result_json)
+        
+        if cached.get("regime_filtered"):
+            return cached
+            
+        base_blend = np.array(cached["base_blend"])
+        dc_probs = np.array(cached["dc_probs"])
+        dc_result = cached["dc_result"]
+        
+        # ── Market Odds Prior for Meta-Learner ──
+        if all([home_odds, draw_odds, away_odds]):
+            raw = [1/home_odds, 1/draw_odds, 1/away_odds]
+            mkt_probs = np.array([r / sum(raw) for r in raw])
+        else:
+            mkt_probs = dc_probs
+            
+        meta_input = np.hstack([base_blend, dc_probs, mkt_probs]).reshape(1, -1)
+        final_proba = _meta_learner.predict_proba(meta_input)[0]
+        final_proba = np.clip(final_proba, 0.05, 0.95)
+        final_proba = final_proba / final_proba.sum()
+        
+        classes = list(_meta_learner.classes_)
+        ph_idx = classes.index("Home Win") if "Home Win" in classes else classes.index(0)
+        pd_idx = classes.index("Draw") if "Draw" in classes else classes.index(1)
+        pa_idx = classes.index("Away Win") if "Away Win" in classes else classes.index(2)
+
+        ph, pd, pa = float(final_proba[ph_idx]), float(final_proba[pd_idx]), float(final_proba[pa_idx])
+        
+        # ── Lineup Strength Adjustment ──
+        from data.lineup_scraper import lineup_strength_adjustment
+        home_adj = lineup_strength_adjustment(home_lineup, home_expected_xi)
+        away_adj = lineup_strength_adjustment(away_lineup, away_expected_xi)
+        
+        ph = ph * home_adj
+        pa = pa * away_adj
+        # Normalize back
+        total = ph + pd + pa
+        ph, pd, pa = ph/total, pd/total, pa/total
+        
+        result = {
+            "home_team": home_team, "away_team": away_team,
+            "home_win_prob": round(ph, 4), "draw_prob": round(pd, 4), "away_win_prob": round(pa, 4),
+            "btts_yes": dc_result.get("btts_yes"), "over_25": dc_result.get("over_25"),
+            "regime_filtered": False,
+            "signals": cached["signals"],
+            "model_version": "7.2",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Determine final pick
+        draw_affinity_val = cached["signals"].get("draw_affinity", 0.0)
+        if pd >= 0.34 and draw_affinity_val >= 0.45:
+            result["final_pick"] = "Draw"
+        else:
+            result["final_pick"] = ["Home Win", "Draw", "Away Win"][int(np.argmax([ph, pd, pa]))]
         
         if stage in KNOCKOUT_STAGES:
             # Overwrite the ML probabilities using the Extra Time redistributor
@@ -568,6 +594,7 @@ def run_inference(home_team: str, away_team: str,
             
             probs = [result["home_win_prob"], result["draw_prob"], result["away_win_prob"]]
             result["final_pick"] = ["Home Win", "Draw", "Away Win"][int(np.argmax(probs))]
+
 
     # Add betting signals if odds provided
     if all([home_odds, draw_odds, away_odds]):

@@ -1,0 +1,179 @@
+======================================================================
+  V7.0 QUANTITATIVE ENGINE — TRAIN & TEST REPORT
+======================================================================
+
+🔄 Live updater: fetching WC2026 matches from 2026-06-01...
+  ⚠️  No RAPIDAPI_KEY — using mock WC2026 data
+  ℹ️  No new completed WC2026 matches to add.
+[DATA] Merged 12 live matches from worldcup_matches.csv
+
+[DATA]  dc_df (2015+): 1286 matches
+[DATA]  form_df (2018+): 992 matches
+
+[FEATURES]  Computing rolling features â€¦
+[FEATURES]  Computing Glicko-2 ratings â€¦
+  [CACHE HIT] Glicko: b4da57dde315
+[FEATURES]  Computing V6 specific features â€¦
+[FEATURES]  Computing Kalman, Regime & Factor features â€¦
+  Features available: 22/24
+  Missing (will be added as 0): ['home_neutral_venue_form', 'away_neutral_venue_form']
+[FEATURES]  Using 24 features: ['home_glicko', 'home_rd', 'away_glicko', 'away_rd', 'glicko_signal', 'home_kalman_velocity', 'away_kalman_velocity', 'kalman_velocity_diff', 'kalman_signal', 'home_regime_coef', 'away_regime_coef', 'regime_factor_diff', 'factor_momentum_diff', 'factor_quality_diff', 'factor_volatility_diff', 'xg_supremacy', 'draw_affinity', 'home_neutral_venue_form', 'away_neutral_venue_form', 'rest_differential', 'stage_pressure', 'injury_differential', 'key_injury_factor', 'press_proxy_diff']
+[FEATURES]  992 matches after preprocessing
+[REGIME]  992 matches after absolute rating diff < 400 filter
+
+[TARGET]  Class distribution:
+          Home Win:  431 (43.4%)
+          Draw:  289 (29.1%)
+          Away Win:  272 (27.4%)
+
+[DC MODEL]  Fitting vectorized Dixon-Coles on 1286 matches â€¦
+  rho converged to: -0.2180
+[DC MODEL]  Fitted in 9.8s  (rho=-0.2180, home_gamma=0.2217)
+
+======================================================================
+  WALK-FORWARD VALIDATION  (5 folds, embargo=4)
+  Total samples: 992, fold_size: 165
+======================================================================
+
+  --- Fold 1 ---  Skipping (train_size=165 < 200)
+
+  --- Fold 2 ---  train=330, test=161
+  TemperatureScaler: T=5.0000 | NLL before=1.9390 -> after=1.2117 (improved)
+  Meta-Learner | ECE=0.1392 | Log-Loss=1.2117 (target ECE<0.08, LL<1.08)
+    Accuracy:   47.20%
+    Log-Loss:   1.0682
+    Brier:      0.2154
+    ECE:        0.0920
+    RPS:        0.2181
+
+  --- Fold 3 ---  train=495, test=161
+  TemperatureScaler: T=5.0000 | NLL before=2.3333 -> after=1.2798 (improved)
+  Meta-Learner | ECE=0.1678 | Log-Loss=1.2798 (target ECE<0.08, LL<1.08)
+    Accuracy:   45.34%
+    Log-Loss:   1.0754
+    Brier:      0.2168
+    ECE:        0.0680
+    RPS:        0.2250
+
+  --- Fold 4 ---  train=660, test=161
+  TemperatureScaler: T=5.0000 | NLL before=1.9111 -> after=1.2252 (improved)
+  Meta-Learner | ECE=0.1180 | Log-Loss=1.2252 (target ECE<0.08, LL<1.08)
+    Accuracy:   45.34%
+    Log-Loss:   1.0646
+    Brier:      0.2148
+    ECE:        0.0557
+    RPS:        0.2123
+
+  --- Fold 5 ---  train=825, test=161
+  TemperatureScaler: T=5.0000 | NLL before=1.9585 -> after=1.2158 (improved)
+  Meta-Learner | ECE=0.1205 | Log-Loss=1.2158 (target ECE<0.08, LL<1.08)
+    Accuracy:   46.58%
+    Log-Loss:   1.0146
+    Brier:      0.2042
+    ECE:        0.1087
+    RPS:        0.1866
+
+======================================================================
+  AGGREGATE RESULTS  (Walk-Forward, 4 folds)
+======================================================================
+
+  Accuracy:   46.12% +/- 0.81%
+  Log-Loss:   1.0557 +/- 0.0240
+  Brier:      0.2128 +/- 0.0050
+  ECE:        0.0811 +/- 0.0206
+  RPS:        0.2105 +/- 0.0145
+
+  [STABILITY]
+    Fold accuracy range:  45.3% - 47.2%
+    Fold spread (max-min): 1.9pp
+    OK: Fold std within acceptable range
+    WARNING: Mean ECE > 0.08 - Kelly stakes may be overconfident
+
+======================================================================
+  POOLED CLASSIFICATION REPORT  (all test folds combined)
+======================================================================
+              precision    recall  f1-score   support
+
+    Home Win      0.547     0.621     0.582       272
+        Draw      0.294     0.175     0.219       200
+    Away Win      0.431     0.541     0.479       172
+
+    accuracy                          0.461       644
+   macro avg      0.424     0.446     0.427       644
+weighted avg      0.437     0.461     0.442       644
+
+Confusion Matrix:
+                  Predicted
+                  HWin  Draw  AWin
+  Actual Home Win   169    50    53
+  Actual     Draw    95    35    70
+  Actual Away Win    45    34    93
+
+======================================================================
+  DIXON-COLES STANDALONE
+======================================================================
+  Accuracy:   47.78%
+  Log-Loss:   1.1558
+
+======================================================================
+  PER-FOLD SUMMARY TABLE
+======================================================================
+  Fold  Train  Test    Acc%  LogLoss   Brier     ECE     RPS
+   ---    ---   ---     ---      ---     ---     ---     ---
+     2    330   161   47.2%   1.0682  0.2154  0.0920  0.2181
+     3    495   161   45.3%   1.0754  0.2168  0.0680  0.2250
+     4    660   161   45.3%   1.0646  0.2148  0.0557  0.2123
+     5    825   161   46.6%   1.0146  0.2042  0.1087  0.1866
+
+======================================================================
+  BASELINE COMPARISONS
+======================================================================
+  Class-Prior Baseline:  Acc = 43.4%,  Log-Loss = 1.0763
+  Dixon-Coles:           Acc = 47.8%,  Log-Loss = 1.1558
+  V7.0 Ensemble (WF):    Acc = 46.1%,  Log-Loss = 1.0557
+
+  V7.0 vs Baseline:  +6.1% relative accuracy improvement
+
+======================================================================
+  COMPLETED IN 131.2s
+======================================================================
+  [OK] Promoted -> model_versions/latest -> v7.0_20260702_212113_c40ca8e9
+  ✅ team_states.json: 48 teams (Glicko + Kalman + Regime)
+
+=======================================================
+  [AUTO-DEPLOY] FIFA Quant Engine
+=======================================================
+  $ git --version
+  git version 2.53.0.windows.2
+  [OK] .streamlit/secrets.toml written
+  [OK] model_card.json written: accuracy=0.461
+  $ git remote get-url origin
+  https://github.com/saiswaroop496-debug/github_url-https-github.com-YOUR_USERNAME-YOUR_REPO_NAME.git-
+  $ git add .
+  $ git diff --cached --quiet
+  $ git commit -m "[auto] V7.0 model update  2026-07-02 15:51 UTC"
+  [main 30cf7e3] [auto] V7.0 model update  2026-07-02 15:51 UTC
+ 18 files changed, 243 insertions(+), 5 deletions(-)
+ create mode 100644 model_versions/v7.0_20260702_212113_c40ca8e9/base_learners.joblib
+ create mode 100644 model_versions/v7.0_20260702_212113_c40ca8e9/dc_params.joblib
+ create mode 100644 model_versions/v7.0_20260702_212113_c40ca8e9/manifest.json
+ create mode 100644 model_versions/v7.0_20260702_212113_c40ca8e9/meta_learner.joblib
+ create mode 100644 model_versions/v7.0_20260702_212113_c40ca8e9/xgb_a.json
+ create mode 100644 model_versions/v7.0_20260702_212113_c40ca8e9/xgb_h.json
+ create mode 100644 v7_1_validation.txt
+ create mode 100644 verify_step1.py
+ create mode 100644 verify_step2.py
+ create mode 100644 verify_step3.py
+ create mode 100644 verify_step4.py
+ create mode 100644 verify_step5.py
+ create mode 100644 verify_step6.py
+ create mode 100644 verify_step7.py
+  $ git push -u origin main
+  branch 'main' set up to track 'origin/main'.
+  [DEPLOY] Pushed to GitHub: [auto] V7.0 model update  2026-07-02 15:51 UTC
+
+  [OK] DEPLOYMENT COMPLETE
+  Streamlit Cloud will auto-redeploy within ~60 seconds.
+  Monitor at: https://share.streamlit.io/
+=======================================================
+

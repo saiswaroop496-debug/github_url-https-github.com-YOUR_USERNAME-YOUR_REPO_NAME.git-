@@ -152,6 +152,20 @@ def main():
     print(f"\n[DATA]  dc_df (2015+): {len(dc_df)} matches")
     print(f"[DATA]  form_df (2018+): {len(form_df)} matches")
 
+    # DIXON-COLES (vectorized)
+    print(f"\n[DC MODEL]  Fitting vectorized Dixon-Coles on {len(dc_df)} matches ...")
+    dc_model = FastDixonColes()
+    dc_model.fit(dc_df)
+
+    print("[DATA]  Recomputing proxy xG using fitted DC parameters...")
+    from data.scraper import calculate_real_proxy_xg
+    dc_params_for_xg = {"team_idx": {t: t for t in dc_model.attack.keys()}, "attack": dc_model.attack}
+    xg_values = form_df.apply(lambda row: calculate_real_proxy_xg(row, dc_params_for_xg), axis=1)
+    form_df['home_xg'] = [x[0] for x in xg_values]
+    form_df['away_xg'] = [x[1] for x in xg_values]
+    form_df['is_xg_proxy'] = [x[2] for x in xg_values]
+
+
     # 2. FEATURES
     print("\n[FEATURES]  Computing rolling features â€¦")
     df = compute_rolling_features(form_df)
@@ -250,6 +264,20 @@ def main():
     df = df[regime_mask].reset_index(drop=True)
     print(f"[REGIME]  {len(df)} matches after absolute rating diff < 400 filter")
 
+    X_full_temp = df[available_cols].copy()
+    y_full_temp = df['home_goals']
+    
+    print("\n[FEATURE SELECTION] Selecting top 15 features...")
+    cat_fs = CatBoostRegressor(iterations=150, learning_rate=0.05, depth=4, verbose=0, random_seed=42)
+    cat_fs.fit(X_full_temp, y_full_temp)
+    
+    importances = cat_fs.get_feature_importance()
+    ranked_idx = np.argsort(importances)[::-1]
+    
+    selected_cols = [available_cols[i] for i in ranked_idx[:15]]
+    print(f"  Selected 15 features: {selected_cols}")
+    
+    available_cols = selected_cols
     X = df[available_cols].copy()
     y_home_goals = df['home_goals']
     y_away_goals = df['away_goals']
@@ -260,13 +288,9 @@ def main():
     for cls, name in [(0, 'Home Win'), (1, 'Draw'), (2, 'Away Win')]:
         print(f"          {name}:  {(y_outcome == cls).sum()} ({(y_outcome == cls).mean()*100:.1f}%)")
 
-    # 4. DIXON-COLES (vectorized)
-    print(f"\n[DC MODEL]  Fitting vectorized Dixon-Coles on {len(dc_df)} matches â€¦")
-    dc_model = FastDixonColes()
-    dc_model.fit(dc_df)
-
     # DC probs for the form_df matches
     dc_probs = dc_model.predict_proba_batch(
+
         df['home_team'].values, df['away_team'].values,
         df['crowd_factor'].values if 'crowd_factor' in df.columns else None
     )
@@ -360,9 +384,12 @@ def main():
         pred_a_tr = np.clip((cat_a.predict(X_train) + xgb_a.predict(X_train) + ridge_a.predict(X_train)) / 3.0, 0.3, 4.0)
         ml_probs_train = xg_to_probs(pred_h_tr, pred_a_tr)
 
-        # Feed ML probabilities and DC probabilities as 6 features to the meta-learner
-        augmented_test = np.hstack([ml_probs_test, dc_probs[test_idx]])
-        augmented_train = np.hstack([ml_probs_train, dc_probs[train_idx]])
+        # Feed ML probabilities and DC probabilities as 9 features to the meta-learner
+        # Features 0-2: ML Ensembles
+        # Features 3-5: Dixon-Coles Probs
+        # Features 6-8: Bayesian Prior (DC probs during training, bookmaker odds during inference)
+        augmented_test = np.hstack([ml_probs_test, dc_probs[test_idx], dc_probs[test_idx]])
+        augmented_train = np.hstack([ml_probs_train, dc_probs[train_idx], dc_probs[train_idx]])
 
         # Meta-Learner with SMOTE and recalibration
         from models.meta_learner import fit_meta_learner, predict_with_draw_threshold

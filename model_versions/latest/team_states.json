@@ -6,8 +6,8 @@
     "kalman_velocity": -6.5912,
     "neutral_venue_form": 0.5,
     "rd": 95.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.2
   },
   "Argentina": {
@@ -17,8 +17,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 70.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "Australia": {
@@ -28,8 +28,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 89.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "Austria": {
@@ -39,8 +39,8 @@
     "kalman_velocity": -7.1234,
     "neutral_venue_form": 0.5,
     "rd": 94.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "momentum_declining",
+    "regime_coef": -1.2,
     "xg_rolling_3": 1.0
   },
   "Belgium": {
@@ -72,8 +72,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 62.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "Canada": {
@@ -83,8 +83,8 @@
     "kalman_velocity": 21.0508,
     "neutral_venue_form": 0.5,
     "rd": 94.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "momentum_improving",
+    "regime_coef": 1.2,
     "xg_rolling_3": 1.2
   },
   "Cape Verde": {
@@ -127,8 +127,8 @@
     "kalman_velocity": 5.8524,
     "neutral_venue_form": 0.5,
     "rd": 99.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "DR Congo": {
@@ -138,8 +138,8 @@
     "kalman_velocity": 4.605,
     "neutral_venue_form": 0.5,
     "rd": 110.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.2
   },
   "Denmark": {
@@ -182,8 +182,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 82.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "France": {
@@ -193,8 +193,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 68.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "Germany": {
@@ -215,8 +215,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 100.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "Haiti": {
@@ -237,8 +237,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 90.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "Iraq": {
@@ -248,8 +248,8 @@
     "kalman_velocity": -6.7114,
     "neutral_venue_form": 0.5,
     "rd": 90.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "Ivory Coast": {
@@ -270,8 +270,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 73.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.2
   },
   "Jordan": {
@@ -292,8 +292,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 59.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.2
   },
   "Morocco": {
@@ -303,8 +303,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 86.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.2
   },
   "Netherlands": {
@@ -314,8 +314,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 77.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "New Zealand": {
@@ -336,8 +336,8 @@
     "kalman_velocity": 9.4926,
     "neutral_venue_form": 0.5,
     "rd": 100.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.2
   },
   "Panama": {
@@ -347,8 +347,8 @@
     "kalman_velocity": 8.0015,
     "neutral_venue_form": 0.5,
     "rd": 88.0,
-    "regime": "momentum_declining",
-    "regime_coef": -1.2,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.2
   },
   "Paraguay": {
@@ -369,8 +369,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 74.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "Qatar": {
@@ -391,8 +391,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 75.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "Scotland": {
@@ -402,8 +402,8 @@
     "kalman_velocity": 8.2264,
     "neutral_venue_form": 0.5,
     "rd": 97.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.2
   },
   "Senegal": {
@@ -468,8 +468,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 83.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.0
   },
   "Tunisia": {
@@ -479,8 +479,8 @@
     "kalman_velocity": -18.5541,
     "neutral_venue_form": 0.5,
     "rd": 88.0,
-    "regime": "random_walk",
-    "regime_coef": 1.0,
+    "regime": "mean_reverting",
+    "regime_coef": 0.8,
     "xg_rolling_3": 1.2
   },
   "Turkey": {

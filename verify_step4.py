@@ -1,4 +1,4 @@
-with open('v7_1_validation.txt') as f:
+with open('v7_1_validation.txt', encoding='utf-8', errors='ignore') as f:
     txt = f.read()
 checks = ['kalman', 'regime', 'factor', 'velocity', 'temperature', 'ECE', 'Log-Loss', 'Accuracy']
 for c in checks:

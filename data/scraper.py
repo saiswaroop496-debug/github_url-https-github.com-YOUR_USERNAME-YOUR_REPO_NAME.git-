@@ -7,37 +7,35 @@ from dotenv import load_dotenv
 from data.mock_worldcup_data import MockDataGenerator
 
 
-def get_xg_for_match(row: pd.Series, api_key: str = "") -> tuple:
+def calculate_real_proxy_xg(row: pd.Series, dc_params=None) -> tuple:
     """
-    Returns (home_xg, away_xg, is_proxy) using real data when available.
-
-    Priority order:
-    1. Real xG from API-Football /statistics endpoint (if fixture_id available)
-    2. Goals-based proxy (deterministic, no noise) as fallback
-
-    The goals-based proxy uses: xG ≈ goals * 0.85 + base_rate
-    It is LABELED as "proxy" so downstream code knows it is not real.
+    Shot-quality proxy xG that does NOT use actual goals.
+    Uses shots, shots on target, and historical team attack strength.
     """
-    # Try real xG from fixture stats
-    fid = row.get('fixture_id')
-    if fid and api_key:
-        try:
-            from data.xg_fetcher import fetch_real_international_xg_from_api
-            real = fetch_real_international_xg_from_api(int(fid), api_key)
-            if real.get('home_xg') is not None:
-                return real['home_xg'], real['away_xg'], False
-        except Exception:
-            pass
-
-    # Improved proxy — no Gaussian noise, just conservative scaling
-    hg = float(row.get('home_score', row.get('home_goals', 0)) or 0)
-    ag = float(row.get('away_score', row.get('away_goals', 0)) or 0)
-
-    base = 0.4  # even 0-0 games had some chance creation
-    home_xg_proxy = max(base, hg * 0.85 + 0.3)
-    away_xg_proxy = max(base * 0.8, ag * 0.85 + 0.25)
-
-    return round(home_xg_proxy, 3), round(away_xg_proxy, 3), True
+    h_shots = float(row.get('home_shots', 0) or 0)
+    a_shots = float(row.get('away_shots', 0) or 0)
+    
+    # If vision xG was extracted, use it directly (if we added it as xg_source == 'vision')
+    if row.get('xg_source') == 'vision':
+        return round(row.get('home_xg', 0.0), 3), round(row.get('away_xg', 0.0), 3), False
+        
+    if h_shots > 0:
+        # Shot-based proxy (best case)
+        h_xg = h_shots * 0.33 * 0.3 + (h_shots * 0.7) * 0.04
+        a_xg = a_shots * 0.33 * 0.3 + (a_shots * 0.7) * 0.04
+    elif dc_params:
+        # Team-specific attack parameter from DC MLE (second best)
+        h_team = row.get('home_team', '')
+        a_team = row.get('away_team', '')
+        t_idx  = dc_params.get('team_idx', {})
+        attack = dc_params.get('attack', {})
+        h_xg   = np.exp(attack.get(t_idx.get(h_team, 0), 0.0)) * 1.2
+        a_xg   = np.exp(attack.get(t_idx.get(a_team, 0), 0.0)) * 1.0
+    else:
+        # Competition-adjusted floor (last resort)
+        h_xg = 1.35; a_xg = 1.05
+    
+    return round(max(0.15, h_xg), 3), round(max(0.15, a_xg), 3), True
 
 
 class DataScraper:
@@ -77,7 +75,7 @@ class DataScraper:
             np.random.seed(42)
 
             xg_values = df.apply(
-                lambda row: get_xg_for_match(row, os.getenv("RAPIDAPI_KEY", "")),
+                lambda row: calculate_real_proxy_xg(row),
                 axis=1
             )
             df['home_xg'] = [x[0] for x in xg_values]

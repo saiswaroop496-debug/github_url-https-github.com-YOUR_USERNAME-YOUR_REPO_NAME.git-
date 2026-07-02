@@ -1,5 +1,5 @@
 import re
-with open('v7_1_validation.txt') as f:
+with open('v7_1_validation.txt', encoding='utf-8', errors='ignore') as f:
     txt = f.read()
 
 acc_m = re.search(r'[Aa]ccuracy[:\s]+(\d+\.?\d*)%', txt)
