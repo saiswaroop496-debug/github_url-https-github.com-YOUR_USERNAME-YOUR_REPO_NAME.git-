@@ -53,9 +53,9 @@ def compute_cross_market_arb(
     elif ah_handicap == -0.5:
         model_ah_h = model_h
     elif ah_handicap == -0.25:
-        model_ah_h = model_h + model_d * 0.5
+        model_ah_h = model_h / (1 - model_d * 0.5)
     elif ah_handicap == 0:
-        model_ah_h = model_h + model_d * 0.5
+        model_ah_h = model_h / (1 - model_d)
     elif ah_handicap == 0.25:
         model_ah_h = model_h + model_d * 0.5
     else:

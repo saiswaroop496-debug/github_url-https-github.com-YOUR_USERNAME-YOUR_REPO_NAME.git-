@@ -15,7 +15,7 @@ from sklearn.decomposition import PCA
 FACTORS = ['momentum', 'quality', 'value', 'volatility', 'depth']
 
 def compute_team_factors(df: pd.DataFrame, team: str,
-                          glicko_ratings: dict,
+                          quality_rating: float,
                           squad_values: dict = None) -> dict:
     """
     Returns a 5-factor vector for a team at prediction time.
@@ -37,8 +37,7 @@ def compute_team_factors(df: pd.DataFrame, team: str,
     momentum = float(np.polyfit(range(len(xg_series)), xg_series, 1)[0]) if len(xg_series) > 1 else 0.0
 
     # Factor 2: Quality - Glicko rating normalised to z-score
-    g = glicko_ratings.get(team, {})
-    quality = float(g.get('rating', 1500) - 1500) / 200.0
+    quality = float(quality_rating - 1500) / 200.0
 
     # Factor 3: Value - average edge vs bookmaker over last 5 matches
     # (positive = market systematically underprices this team)

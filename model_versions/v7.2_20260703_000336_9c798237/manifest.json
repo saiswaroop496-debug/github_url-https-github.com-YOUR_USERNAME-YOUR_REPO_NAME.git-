@@ -1,0 +1,31 @@
+{
+  "version": "7.2",
+  "build": "v7.2_20260703_000336_9c798237",
+  "timestamp": "20260703_000336",
+  "feature_cols": [
+    "home_glicko",
+    "home_rd",
+    "away_glicko",
+    "away_rd",
+    "glicko_signal",
+    "away_kalman_velocity",
+    "kalman_velocity_diff",
+    "kalman_signal",
+    "home_regime_coef",
+    "away_regime_coef",
+    "regime_factor_diff",
+    "factor_momentum_diff",
+    "factor_volatility_diff",
+    "xg_supremacy",
+    "rest_differential"
+  ],
+  "metrics": {
+    "accuracy": 0.41304347826086957,
+    "log_loss": 1.0809878447967036,
+    "brier_score": 0.21826213404472802,
+    "ece": 0.08092600961570577,
+    "draw_recall": 0.135,
+    "fold_std": 0.02795031055900622
+  },
+  "promoted": false
+}

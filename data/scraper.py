@@ -129,14 +129,6 @@ class DataScraper:
             # Add required columns for the ML pipeline
             np.random.seed(42)
 
-            xg_values = df.apply(
-                lambda row: calculate_real_proxy_xg(row),
-                axis=1
-            )
-            df['home_xg'] = [x[0] for x in xg_values]
-            df['away_xg'] = [x[1] for x in xg_values]
-            df['is_xg_proxy'] = [x[2] for x in xg_values]
-
             df['home_squad_value_m'] = df['home_team'].map(lambda t: self.TRUE_STRENGTHS[t]['value_m'])
             df['away_squad_value_m'] = df['away_team'].map(lambda t: self.TRUE_STRENGTHS[t]['value_m'])
 
@@ -144,8 +136,16 @@ class DataScraper:
             df['home_possession'] = np.clip(np.random.normal(df['base_possession'], 5), 25, 75)
             df['away_possession'] = 100 - df['home_possession']
 
-            df['home_shots'] = (df['home_xg'] * 8 + np.random.normal(0, 2, len(df))).clip(1, 30).astype(int)
-            df['away_shots'] = (df['away_xg'] * 8 + np.random.normal(0, 2, len(df))).clip(1, 30).astype(int)
+            df['home_shots'] = (df['home_possession'] / 100 * 25 + np.random.normal(0, 3, len(df))).clip(1, 30).astype(int)
+            df['away_shots'] = (df['away_possession'] / 100 * 25 + np.random.normal(0, 3, len(df))).clip(1, 30).astype(int)
+
+            xg_values = df.apply(
+                lambda row: calculate_real_proxy_xg(row),
+                axis=1
+            )
+            df['home_xg'] = [x[0] for x in xg_values]
+            df['away_xg'] = [x[1] for x in xg_values]
+            df['is_xg_proxy'] = [x[2] for x in xg_values]
 
             df['is_neutral'] = df['neutral']
 

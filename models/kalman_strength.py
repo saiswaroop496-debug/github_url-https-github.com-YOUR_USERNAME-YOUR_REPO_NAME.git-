@@ -57,16 +57,16 @@ def kalman_update(state: KalmanTeamState,
 
 def xg_to_strength_observation(home_xg: float, away_xg: float,
                                  team: str, home_team: str,
-                                 base_strength: float = 1500) -> float:
+                                 opponent_strength: float) -> float:
     """
     Convert match xG to a strength observation.
-    If team was home: observation = base + (home_xg - away_xg) * 100
+    If team was home: observation = opp_strength + (home_xg - away_xg) * 100
     """
     xg_diff = home_xg - away_xg
     if team == home_team:
-        return base_strength + xg_diff * 100
+        return opponent_strength + xg_diff * 100
     else:
-        return base_strength - xg_diff * 100
+        return opponent_strength - xg_diff * 100
 
 class KalmanRatingSystem:
     """Drop-in replacement for Glicko-2 with continuous Kalman updating."""
@@ -82,9 +82,12 @@ class KalmanRatingSystem:
     def update_match(self, home_team: str, away_team: str,
                       home_xg: float, away_xg: float):
         """Update both teams after a match using xG as observation."""
+        h_str = self.get_strength(home_team)
+        a_str = self.get_strength(away_team)
+
         # Observation for each team
-        h_obs = xg_to_strength_observation(home_xg, away_xg, home_team, home_team)
-        a_obs = xg_to_strength_observation(home_xg, away_xg, away_team, home_team)
+        h_obs = xg_to_strength_observation(home_xg, away_xg, home_team, home_team, opponent_strength=a_str)
+        a_obs = xg_to_strength_observation(home_xg, away_xg, away_team, home_team, opponent_strength=h_str)
 
         self.states[home_team] = kalman_update(self.get_or_init(home_team), h_obs)
         self.states[away_team] = kalman_update(self.get_or_init(away_team), a_obs)

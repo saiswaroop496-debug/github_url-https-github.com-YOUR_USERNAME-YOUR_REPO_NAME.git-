@@ -153,6 +153,11 @@ class MockDataGenerator:
             home_shots = int(np.clip(np.random.normal(home_xg * 8, 3), 1, 30))
             away_shots = int(np.clip(np.random.normal(away_xg * 8, 3), 1, 30))
             
+            home_yellow = np.random.poisson(1.5)
+            away_yellow = np.random.poisson(1.5)
+            home_corners = np.random.poisson(4.5 + home_possession / 20.0)
+            away_corners = np.random.poisson(4.5 + away_possession / 20.0)
+            
             is_neutral = True
             stage = np.random.choice(["Group", "Knockout", "Final"], p=[0.7, 0.25, 0.05])
             
@@ -173,6 +178,10 @@ class MockDataGenerator:
                 'away_possession': away_possession,
                 'home_shots': home_shots,
                 'away_shots': away_shots,
+                'home_yellow': home_yellow,
+                'away_yellow': away_yellow,
+                'home_corners': home_corners,
+                'away_corners': away_corners,
                 'is_neutral': is_neutral,
                 'tournament_stage': stage,
                 'tournament_weight': weight,
@@ -185,3 +194,9 @@ class MockDataGenerator:
             current_date += timedelta(days=np.random.randint(1, 4))
             
         return pd.DataFrame(data)
+
+if __name__ == "__main__":
+    generator = MockDataGenerator()
+    df = generator.generate(400)
+    df.to_csv("worldcup_matches.csv", index=False)
+    print(f"Generated {len(df)} matches to worldcup_matches.csv")

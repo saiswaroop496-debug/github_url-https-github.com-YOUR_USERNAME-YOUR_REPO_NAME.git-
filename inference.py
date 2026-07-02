@@ -213,6 +213,29 @@ def _build_feature_vector(home_team: str, away_team: str, venue_factor: float, s
     vec = np.array([feature_map.get(col, 0.0) for col in feature_cols])
     return vec.reshape(1, -1)[0] # return 1d array to match old usage
 
+from models.minute_simulation import run_simulation, SimulationConfig
+from data.cv_calibrator import get_cv_calibration
+
+def _run_simulation_for_match(home_team, away_team, lam_h, lam_a, rho,
+                                stage, team_states) -> dict:
+    """Run MC simulation and return summary."""
+    from models.match_rules import KNOCKOUT_STAGES
+    cv = get_cv_calibration(home_team, away_team,
+                             match_date="latest")   # uses default if no cache
+
+    config = SimulationConfig(
+        lam_h=lam_h, lam_a=lam_a, rho=rho,
+        n_simulations=500,   # 500 = fast (<0.5s), accurate enough
+        is_knockout=(stage in KNOCKOUT_STAGES),
+        home_yellow_mod=cv.get('home_yellow_modifier', 1.0),
+        away_yellow_mod=cv.get('away_yellow_modifier', 1.0),
+        home_shot_mod=cv.get('home_shot_modifier', 1.0),
+        away_shot_mod=cv.get('away_shot_modifier', 1.0),
+        home_corner_mod=cv.get('home_corner_modifier', 1.0),
+        away_corner_mod=cv.get('away_corner_modifier', 1.0),
+    )
+    return run_simulation(config)
+
 
 
 # ─── Poisson Dixon-Coles Blending ────────────────────────────────────────────
@@ -653,5 +676,12 @@ def run_inference(home_team: str, away_team: str,
         result["conformal_prediction_set"] = prediction_set
     except Exception as e:
         pass
+
+    # Add minute-by-minute simulation
+    try:
+        sim_result = _run_simulation_for_match(home_team, away_team, lam_h, lam_a, rho, stage, _team_states)
+        result["simulation"] = sim_result
+    except Exception as e:
+        warnings.warn(f"Simulation failed: {e}")
 
     return result

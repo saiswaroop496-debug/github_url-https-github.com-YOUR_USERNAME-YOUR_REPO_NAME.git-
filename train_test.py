@@ -205,8 +205,8 @@ def main():
         df.at[idx, 'away_regime_coef'] = a_reg['coefficient']
         df.at[idx, 'regime_factor_diff'] = h_reg['coefficient'] - a_reg['coefficient']
 
-        h_fac = compute_team_factors(df_past, row['home_team'], glicko.ratings)
-        a_fac = compute_team_factors(df_past, row['away_team'], glicko.ratings)
+        h_fac = compute_team_factors(df_past, row['home_team'], row['home_glicko'])
+        a_fac = compute_team_factors(df_past, row['away_team'], row['away_glicko'])
         fac_diffs = factor_matchup_score(h_fac, a_fac)
         for k, v in fac_diffs.items():
             df.at[idx, k] = v
@@ -257,10 +257,6 @@ def main():
         
     print(f"[FEATURES]  {len(df)} matches after preprocessing")
 
-    # Regime filter: Exclude mismatch games (rating diff > 400)
-    regime_mask = (df['home_glicko'] - df['away_glicko']).abs() < 400
-    df = df[regime_mask].reset_index(drop=True)
-    print(f"[REGIME]  {len(df)} matches after absolute rating diff < 400 filter")
 
     X_full_temp = df[available_cols].copy()
     y_full_temp = df['home_goals']
@@ -376,6 +372,7 @@ def main():
         def build_bls():
             cat_h = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
                                        iterations=250, learning_rate=0.04, subsample=0.8,
+                                       bootstrap_type='Bernoulli',
                                        random_seed=42, verbose=0, thread_count=1)
             xgb_h = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
                                   n_estimators=200, learning_rate=0.04, subsample=0.8,
@@ -384,6 +381,7 @@ def main():
 
             cat_a = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
                                        iterations=250, learning_rate=0.04, subsample=0.8,
+                                       bootstrap_type='Bernoulli',
                                        random_seed=42, verbose=0, thread_count=1)
             xgb_a = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
                                   n_estimators=200, learning_rate=0.04, subsample=0.8,
@@ -419,8 +417,8 @@ def main():
         ml_probs_test = xg_to_probs(pred_h_test, pred_a_test)
         ml_probs_train = oof_ml
         
-        augmented_test = np.hstack([ml_probs_test, dc_probs_test, dc_probs_test])
-        augmented_train = np.hstack([ml_probs_train, dc_probs_train, dc_probs_train])
+        augmented_test = np.hstack([ml_probs_test, dc_probs_test])
+        augmented_train = np.hstack([ml_probs_train, dc_probs_train])
 
         # Meta-Learner
         from models.meta_learner import fit_meta_learner

@@ -30,7 +30,7 @@ def portfolio_kelly(edges: np.ndarray,
         """Maximize expected log growth = Kelly objective."""
         # Approximate log growth with Taylor expansion
         total = sum(
-            edges[i] * fracs[i] - 0.5 * fracs[i]**2 / (odds[i]-1)
+            (edges[i] * odds[i] * fracs[i]) - (0.5 * fracs[i]**2 * (odds[i] - 1))
             for i in range(n) if valid[i]
         )
         # Covariance penalty (Markowitz)
