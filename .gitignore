@@ -8,7 +8,11 @@ venv/
 ENV/
 catboost_info/
 .glicko_cache/
-*.csv
+bets_log.jsonl
+bets_log.csv
+data/injuries_cache.json
+data/live_state.json
+data/movement_stats.json
 *.pkl
 *.pyc
 *.log

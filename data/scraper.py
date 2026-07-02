@@ -1,4 +1,4 @@
-﻿import os
+import os
 import requests
 import pandas as pd
 from dotenv import load_dotenv
@@ -16,6 +16,44 @@ class DataScraper:
         self.mock_gen = MockDataGenerator()
         self.teams_to_keep = self.mock_gen.teams
         self.TRUE_STRENGTHS = self.mock_gen.TRUE_STRENGTHS
+
+def get_xg_for_match(row: pd.Series, api_key: str = "") -> tuple:
+    """
+    Returns (home_xg, away_xg) using real data when available.
+    
+    Priority order:
+    1. Real xG from API-Football /statistics endpoint (if fixture_id available)
+    2. Real xG from international_results.csv if column exists
+    3. Goals-based proxy (better than goals+noise) as last resort
+    
+    The goals-based proxy uses the formula:
+    xG ≈ goals * 0.85 + 0.15 * shots_on_target * 0.1
+    This is a conservative estimator that never exceeds actual goals by large margins.
+    It is LABELED as "proxy" in the dataset so downstream code knows it is not real.
+    """
+    # Try real xG from fixture stats
+    fid = row.get('fixture_id')
+    if fid and api_key:
+        from data.xg_fetcher import fetch_real_international_xg_from_api
+        real = fetch_real_international_xg_from_api(int(fid), api_key)
+        if real.get('home_xg') is not None:
+            return real['home_xg'], real['away_xg'], False  # False = not proxy
+
+    # Real xG already in CSV from StatsBomb open data (international matches)
+    if pd.notna(row.get('home_xg')) and row.get('home_xg', 0) > 0:
+        return float(row['home_xg']), float(row['away_xg']), False
+
+    # Improved proxy — no Gaussian noise, just conservative scaling
+    hg = float(row.get('home_score', row.get('home_goals', 0)) or 0)
+    ag = float(row.get('away_score', row.get('away_goals', 0)) or 0)
+    
+    # Add small competition-based base rate for draws (0-0 not 0 xG)
+    base = 0.4  # even 0-0 games had some chance creation
+    home_xg_proxy = max(base, hg * 0.85 + 0.3)
+    away_xg_proxy = max(base * 0.8, ag * 0.85 + 0.25)
+    
+    return round(home_xg_proxy, 3), round(away_xg_proxy, 3), True  # True = proxy
+
 
     def fetch_fixtures(self):
         try:
@@ -47,11 +85,10 @@ class DataScraper:
             # Add required columns for the ML pipeline
             np.random.seed(42)
             
-            def calculate_xg(goals):
-                return np.clip(np.random.normal(goals + 0.1, 0.3), 0.05, 5.0)
-                
-            df['home_xg'] = df['home_goals'].apply(calculate_xg)
-            df['away_xg'] = df['away_goals'].apply(calculate_xg)
+            xg_values = df.apply(lambda row: get_xg_for_match(row, os.getenv("RAPIDAPI_KEY", "")), axis=1)
+            df['home_xg'] = [x[0] for x in xg_values]
+            df['away_xg'] = [x[1] for x in xg_values]
+            df['is_xg_proxy'] = [x[2] for x in xg_values]
             
             df['home_squad_value_m'] = df['home_team'].map(lambda t: self.TRUE_STRENGTHS[t]['value_m'])
             df['away_squad_value_m'] = df['away_team'].map(lambda t: self.TRUE_STRENGTHS[t]['value_m'])

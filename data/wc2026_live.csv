@@ -1,6 +1,3 @@
-date,home_team,away_team,home_score,away_score,tournament,city,country,neutral,result,stage,is_neutral,is_knockout,tournament_weight,fetched_at
-2026-06-11,Mexico,United States,2,1,FIFA World Cup,Mexico City,Mexico,False,,,,,,
-2026-06-27,Croatia,Ghana,2,1,FIFA World Cup,,,,Home Win,Group,1.0,0.0,3.0,2026-06-28T01:59:34.620886+00:00
-2026-06-27,Panama,England,0,2,FIFA World Cup,,,,Away Win,Group,1.0,0.0,3.0,2026-06-28T01:59:34.620886+00:00
-2026-06-27,Colombia,Portugal,0,0,FIFA World Cup,,,,Draw,Group,1.0,0.0,3.0,2026-06-28T01:59:34.620886+00:00
-2026-06-27,Congo DR,Uzbekistan,3,1,FIFA World Cup,,,,Home Win,Group,1.0,0.0,3.0,2026-06-28T01:59:34.620886+00:00
+version https://git-lfs.github.com/spec/v1
+oid sha256:c23421dee473b01f48f3503c9f0480db596903dc097195136d495b5a919fa176
+size 667
