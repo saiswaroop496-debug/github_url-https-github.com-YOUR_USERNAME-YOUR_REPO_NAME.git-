@@ -137,7 +137,7 @@ def xg_to_probs(pred_h, pred_a):
 
 def main():
     print("=" * 70)
-    print("  V7.0 QUANTITATIVE ENGINE — TRAIN & TEST REPORT")
+    print("  V7.2 QUANTITATIVE ENGINE — TRAIN & TEST REPORT")
     print("=" * 70)
 
     t_start = time.time()
@@ -160,7 +160,13 @@ def main():
     print("[DATA]  Recomputing proxy xG using fitted DC parameters...")
     from data.scraper import calculate_real_proxy_xg
     dc_params_for_xg = {"team_idx": {t: t for t in dc_model.attack.keys()}, "attack": dc_model.attack}
-    xg_values = form_df.apply(lambda row: calculate_real_proxy_xg(row, dc_params_for_xg), axis=1)
+    
+    # Temporarily drop shots to force calculate_real_proxy_xg to use DC params instead of circular goals
+    form_df_for_xg = form_df.copy()
+    if 'home_shots' in form_df_for_xg: del form_df_for_xg['home_shots']
+    if 'away_shots' in form_df_for_xg: del form_df_for_xg['away_shots']
+    
+    xg_values = form_df_for_xg.apply(lambda row: calculate_real_proxy_xg(row, dc_params_for_xg), axis=1)
     form_df['home_xg'] = [x[0] for x in xg_values]
     form_df['away_xg'] = [x[1] for x in xg_values]
     form_df['is_xg_proxy'] = [x[2] for x in xg_values]
@@ -518,10 +524,10 @@ def main():
     random_acc = prior.max()
     print(f"  Class-Prior Baseline:  Acc = {random_acc*100:.1f}%,  Log-Loss = {random_ll:.4f}")
     print(f"  Dixon-Coles:           Acc = {dc_acc*100:.1f}%,  Log-Loss = {dc_ll:.4f}")
-    print(f"  V7.0 Ensemble (WF):    Acc = {np.mean(accs)*100:.1f}%,  Log-Loss = {np.mean(lls):.4f}")
+    print(f"  V7.2 Ensemble (WF):    Acc = {np.mean(accs)*100:.1f}%,  Log-Loss = {np.mean(lls):.4f}")
 
     improvement = (np.mean(accs) - random_acc) / random_acc * 100
-    print(f"\n  V7.0 vs Baseline:  {improvement:+.1f}% relative accuracy improvement")
+    print(f"\n  V7.2 vs Baseline:  {improvement:+.1f}% relative accuracy improvement")
 
     elapsed = time.time() - t_start
     print(f"\n{'='*70}")
@@ -592,7 +598,7 @@ def main():
                     metrics=deployment_metrics,
                     github_url="https://github.com/saiswaroop496-debug/github_url-https-github.com-YOUR_USERNAME-YOUR_REPO_NAME.git-",
                     api_key=os.getenv("RAPIDAPI_KEY", ""),
-                version_tag="V7.0",
+                version_tag="V7.2",
                 )
             else:
                 print("Skipping deployment due to --auto-deploy=false flag.")
@@ -611,7 +617,7 @@ MODEL_VERSIONS_DIR = Path("model_versions")
 MODEL_VERSIONS_DIR.mkdir(exist_ok=True)
 
 def export_model(model, scaler, meta_learner, feature_cols: list,
-                 metrics: dict, version: str = "7.0"):
+                 metrics: dict, version: str = "7.2"):
     """
     Export model artifacts with version manifest.
     Automatically increments build number via hash.

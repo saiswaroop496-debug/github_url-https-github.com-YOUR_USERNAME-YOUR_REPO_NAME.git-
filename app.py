@@ -114,7 +114,7 @@ def run_health_check(feature_df, models):
     else:
         st.sidebar.success("✅ Pipeline integrity verified")
 
-st.set_page_config(layout="wide", page_title="V7 Quant Engine")
+st.set_page_config(layout="wide", page_title="V7.2 Quant Engine")
 
 st.sidebar.header("Configuration")
 api_key = st.sidebar.text_input("RapidAPI Key (Optional for Mock)", type="password")
@@ -342,7 +342,7 @@ metrics = load_manifest_metrics()
 # ─── HEADER ───────────────────────────────────────────────────────────────────
 col_logo, col_tier = st.columns([3, 1])
 with col_logo:
-    st.markdown("## ⚽ FIFA World Cup Quantitative Engine V7.0")
+    st.markdown("## ⚽ FIFA World Cup Quantitative Engine V7.2")
     acc = metrics.get('accuracy')
     if acc is None: acc = 43.4
     if acc < 1.0: acc *= 100.0
