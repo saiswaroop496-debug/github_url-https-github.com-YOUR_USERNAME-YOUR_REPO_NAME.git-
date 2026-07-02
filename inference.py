@@ -210,6 +210,10 @@ def _build_feature_vector(home: dict, away: dict,
         "away_sas":                away.get("sas", 1.0),
         "sas_differential":        home.get("sas", 1.0) - away.get("sas", 1.0),
         "sharp_line_movement":     0.0,   # provided by caller if available
+        # NEW FEATURES:
+        "kalman_signal":           (home.get("strength", 1500) - away.get("strength", 1500)) / (np.sqrt(home.get("uncertainty", 100)**2 + away.get("uncertainty", 100)**2) + 1e-9),
+        "velocity_diff":           home.get("velocity", 0.0) - away.get("velocity", 0.0),
+        "regime_factor_diff":      home.get("regime_coefficient", 1.0) - away.get("regime_coefficient", 1.0),
     }
 
     return np.array([feature_map.get(col, 0.0) for col in _feature_cols], dtype=float)
@@ -243,7 +247,7 @@ def _dc_predict(home_team: str, away_team: str, venue_factor: float):
         ph, pd, pa = outcome_probs(matrix)
         btts_ou = extract_btts_ou(matrix)
 
-        return {"home_win": ph, "draw": pd, "away_win": pa, **btts_ou}
+        return {"home_win": ph, "draw": pd, "away_win": pa, **btts_ou, "score_matrix": matrix}
 
     except Exception as e:
         warnings.warn(f"DC prediction failed: {e}")
@@ -254,10 +258,15 @@ def _dc_predict(home_team: str, away_team: str, venue_factor: float):
 def _compute_betting_math(model_probs: dict,
                            home_odds: float = None,
                            draw_odds: float = None,
-                           away_odds: float = None) -> dict:
+                           away_odds: float = None,
+                           ah_home_odds: float = None,
+                           ah_handicap: float = None,
+                           over_odds: float = None,
+                           under_odds: float = None,
+                           score_matrix: np.ndarray = None) -> dict:
     """Compute no-vig edge and Kelly fractions for each market."""
     if not all([home_odds, draw_odds, away_odds]):
-        return {"no_vig_edge": None, "best_bet": None, "kelly_fraction": None}
+        return {"no_vig_edge": None, "best_bet": None, "kelly_fraction": None, "ir_multiplier": None}
 
     raw = [1/home_odds, 1/draw_odds, 1/away_odds]
     overround = sum(raw)
@@ -271,23 +280,77 @@ def _compute_betting_math(model_probs: dict,
     best_idx = int(np.argmax(edges))
     best_edge = edges[best_idx]
 
-    MIN_EDGE = 0.025
-    if best_edge < MIN_EDGE:
-        return {"no_vig_edge": round(best_edge, 4), "best_bet": "NO BET",
-                "kelly_fraction": 0.0, "novig_probs": novig}
+    try:
+        from betting.stat_arb import compute_cross_market_arb
+        from betting.information_ratio_kelly import ir_adjusted_kelly
+        STAT_ARB_AVAILABLE = True
+    except ImportError:
+        STAT_ARB_AVAILABLE = False
 
-    p = model_p[best_idx]
-    b = odds_list[best_idx] - 1
-    kelly_full = (b * p - (1 - p)) / b
-    kelly_quarter = max(0.0, kelly_full * 0.25)
-    kelly_capped  = min(kelly_quarter, 0.05)   # never > 5% per bet
+    all_edges_dict = {o: round(e, 4) for o, e in zip(outcomes, edges)}
+
+    if STAT_ARB_AVAILABLE and all([ah_home_odds, ah_handicap is not None, over_odds, under_odds, score_matrix is not None]):
+        arb_res = compute_cross_market_arb(
+            home_odds, draw_odds, away_odds,
+            ah_home_odds, ah_handicap,
+            over_odds, under_odds,
+            score_matrix
+        )
+        if arb_res.get('best_bet'):
+            best_bet = arb_res['best_bet']
+            best_edge = arb_res['edge']
+            all_edges_dict = arb_res.get('all_edges', all_edges_dict)
+            if best_bet == '1X2_Home': p = model_p[0]; b = home_odds - 1.0
+            elif best_bet == '1X2_Draw': p = model_p[1]; b = draw_odds - 1.0
+            elif best_bet == '1X2_Away': p = model_p[2]; b = away_odds - 1.0
+            elif best_bet == 'AH_Home':
+                model_h = np.tril(score_matrix, k=-1).sum()
+                model_d = np.trace(score_matrix)
+                if ah_handicap <= -0.5: p = model_h
+                elif ah_handicap == 0: p = model_h + model_d * 0.5
+                else: p = model_h + model_d
+                b = ah_home_odds - 1.0
+            elif best_bet == 'Over_2.5':
+                n = score_matrix.shape[0]
+                p = sum(score_matrix[i, j] for i in range(n) for j in range(n) if i + j > 2)
+                b = over_odds - 1.0
+            elif best_bet == 'Under_2.5':
+                n = score_matrix.shape[0]
+                p = 1.0 - sum(score_matrix[i, j] for i in range(n) for j in range(n) if i + j > 2)
+                b = under_odds - 1.0
+            else:
+                p = 0; b = 1
+        else:
+            best_bet = "NO BET"
+    else:
+        MIN_EDGE = 0.025
+        if best_edge < MIN_EDGE:
+            best_bet = "NO BET"
+        else:
+            best_bet = outcomes[best_idx]
+            p = model_p[best_idx]
+            b = odds_list[best_idx] - 1.0
+
+    if best_bet != "NO BET":
+        if STAT_ARB_AVAILABLE:
+            kelly_res = ir_adjusted_kelly(p, b + 1.0, historical_edges=[])
+            kelly_capped = kelly_res['stake_fraction']
+            ir_multiplier = kelly_res['ir_multiplier']
+        else:
+            kelly_full = (b * p - (1 - p)) / b
+            kelly_capped  = min(max(0.0, kelly_full * 0.25), 0.05)
+            ir_multiplier = 0.0
+    else:
+        kelly_capped = 0.0
+        ir_multiplier = 0.0
 
     return {
-        "no_vig_edge":    round(best_edge, 4),
-        "best_bet":       outcomes[best_idx],
-        "kelly_fraction": round(kelly_capped, 4),
+        "no_vig_edge":    round(best_edge, 4) if best_bet != "NO BET" else None,
+        "best_bet":       best_bet if best_bet != "NO BET" else None,
+        "kelly_fraction": round(kelly_capped, 4) if best_bet != "NO BET" else None,
+        "ir_multiplier":  round(ir_multiplier, 4) if best_bet != "NO BET" else None,
         "novig_probs":    [round(n, 4) for n in novig],
-        "all_edges":      {o: round(e, 4) for o, e in zip(outcomes, edges)}
+        "all_edges":      all_edges_dict
     }
 
 
@@ -416,6 +479,7 @@ def run_inference(home_team: str, away_team: str,
                    venue_factor: float = 0.3,
                    stage: str = "group",
                    home_odds=None, draw_odds=None, away_odds=None,
+                   ah_home_odds=None, ah_handicap=None, over_odds=None, under_odds=None,
                    # ── LIVE PARAMETERS ──────────────────────────────────
                    elapsed_minutes: int = None,
                    home_goals_live: int = None,
@@ -506,11 +570,14 @@ def run_inference(home_team: str, away_team: str,
     if all([home_odds, draw_odds, away_odds]):
         betting = _compute_betting_math(
             {"home_win": result["home_win_prob"], "draw": result["draw_prob"], "away_win": result["away_win_prob"]},
-            home_odds, draw_odds, away_odds
+            home_odds, draw_odds, away_odds,
+            ah_home_odds, ah_handicap, over_odds, under_odds,
+            dc_result.get("score_matrix") if isinstance(dc_result, dict) else None
         )
         result["no_vig_edge"] = betting.get("no_vig_edge")
         result["best_bet"] = betting.get("best_bet")
         result["kelly_fraction"] = betting.get("kelly_fraction")
+        result["ir_multiplier"] = betting.get("ir_multiplier")
         result["all_edges"] = betting.get("all_edges")
 
     # Apply Conformal Prediction Sets

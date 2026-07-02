@@ -1,11 +1,11 @@
 {
-  "version": "V6.0",
-  "deployed_at": "2026-07-01T16:45:18.067107Z",
-  "accuracy": 0.46739130434782605,
-  "log_loss": 1.0695495524929197,
+  "version": "V7.0",
+  "deployed_at": "2026-07-02T15:15:24.118797Z",
+  "accuracy": 0.46118012422360255,
+  "log_loss": 1.0557252147770166,
   "brier": 0,
-  "ece": 0,
-  "fold_std": 0,
-  "draw_recall": 0,
-  "n_matches": 0
+  "ece": 0.0811203367250345,
+  "fold_std": 0.008068559662587927,
+  "draw_recall": 0.175,
+  "n_matches": 992
 }

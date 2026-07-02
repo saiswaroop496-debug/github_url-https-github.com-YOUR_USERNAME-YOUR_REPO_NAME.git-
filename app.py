@@ -421,10 +421,14 @@ else:
 
 if st.button("▶ Run Prediction Engine", type="primary", use_container_width=True):
     with st.spinner("Running quantitative engine..."):
-        from inference import run_inference
+        from inference import run_inference, _get_team_state, _ensure_loaded
         # Strip emojis for backend
         t1 = [k for k, v in team_display.items() if v == team1][0]
         t2 = [k for k, v in team_display.items() if v == team2][0]
+
+        _ensure_loaded()
+        home_state = _get_team_state(t1)
+        away_state = _get_team_state(t2)
 
         result = run_inference(
             home_team=t1, away_team=t2,
@@ -474,6 +478,31 @@ if st.button("▶ Run Prediction Engine", type="primary", use_container_width=Tr
         m2.metric("🤝 Draw",        f"{p_d:.1%}")
         m3.metric(f"✈️ {team2} Win", f"{p_a:.1%}",
                   delta=f"+{p_a-0.333:.1%}" if live_mode else None)
+
+        st.markdown("#### 🔍 Kalman & Regime Signals")
+        k1, k2 = st.columns(2)
+        k1.metric(f"{team1} Kalman Velocity", f"{home_state.get('velocity', 0.0):.2f}")
+        k1.caption(f"Regime: {home_state.get('regime', 'unknown')}")
+        k2.metric(f"{team2} Kalman Velocity", f"{away_state.get('velocity', 0.0):.2f}")
+        k2.caption(f"Regime: {away_state.get('regime', 'unknown')}")
+
+        if is_syndicate and result.get("best_bet"):
+            st.markdown("---")
+            st.markdown("### 💰 Syndicate Betting Strategy")
+            b1, b2, b3, b4 = st.columns(4)
+            b1.metric("Recommended Bet", result["best_bet"])
+            
+            edge_val = result.get('no_vig_edge')
+            edge_str = f"{edge_val:.1%}" if edge_val is not None else "N/A"
+            b2.metric("No-Vig Edge", edge_str)
+            
+            kelly_val = result.get('kelly_fraction')
+            kelly_str = f"{kelly_val:.2%}" if kelly_val is not None else "N/A"
+            b3.metric("Kelly Fraction", kelly_str)
+            
+            ir_val = result.get('ir_multiplier')
+            ir_str = f"{ir_val:.2f}" if ir_val is not None else "N/A"
+            b4.metric("IR Multiplier", ir_str)
 
         if live_mode:
             # Live signals bar (Syndicate only)

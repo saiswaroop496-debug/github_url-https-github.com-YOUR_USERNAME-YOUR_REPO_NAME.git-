@@ -24,6 +24,9 @@ from xgboost import XGBRegressor
 from data.scraper import DataScraper
 from features.rolling_features import compute_rolling_features
 from features.glicko_ratings import Glicko2RatingSystem
+from models.kalman_strength import KalmanRatingSystem
+from features.regime_detector_v2 import detect_team_regime
+from models.factor_model import compute_team_factors, factor_matchup_score
 def expected_calibration_error(y_true, y_prob, n_bins=10):
     bins = np.linspace(0., 1., n_bins + 1)
     binids = np.digitize(y_prob, bins) - 1
@@ -162,22 +165,62 @@ def main():
     df = add_injury_features(df)
     df = add_movement_features(df)
 
+    print("[FEATURES]  Computing Kalman, Regime & Factor features â€¦")
+    kalman_system = KalmanRatingSystem()
+    df = df.sort_values('date').reset_index(drop=True)
+    
+    for i in range(len(df)):
+        row = df.iloc[i]
+        idx = row.name
+        
+        # Kalman
+        df.at[idx, 'home_kalman_strength'] = kalman_system.get_strength(row['home_team'])
+        df.at[idx, 'home_kalman_velocity']  = kalman_system.get_velocity(row['home_team'])
+        df.at[idx, 'home_kalman_uncertainty'] = kalman_system.get_uncertainty(row['home_team'])
+        df.at[idx, 'away_kalman_strength']  = kalman_system.get_strength(row['away_team'])
+        df.at[idx, 'away_kalman_velocity']  = kalman_system.get_velocity(row['away_team'])
+        df.at[idx, 'away_kalman_uncertainty'] = kalman_system.get_uncertainty(row['away_team'])
+        
+        # Signal
+        df.at[idx, 'kalman_velocity_diff'] = df.at[idx, 'home_kalman_velocity'] - df.at[idx, 'away_kalman_velocity']
+        df.at[idx, 'kalman_signal'] = (df.at[idx, 'home_kalman_strength'] - df.at[idx, 'away_kalman_strength']) / np.sqrt(df.at[idx, 'home_kalman_uncertainty'] + df.at[idx, 'away_kalman_uncertainty'] + 1e-9)
+
+        # Regime and Factors (anti-leakage: pass only past data)
+        df_past = df.iloc[:i]
+        h_reg = detect_team_regime(row['home_team'], df_past)
+        a_reg = detect_team_regime(row['away_team'], df_past)
+        df.at[idx, 'home_regime_coef'] = h_reg['coefficient']
+        df.at[idx, 'away_regime_coef'] = a_reg['coefficient']
+        df.at[idx, 'regime_factor_diff'] = h_reg['coefficient'] - a_reg['coefficient']
+
+        h_fac = compute_team_factors(df_past, row['home_team'], glicko.ratings)
+        a_fac = compute_team_factors(df_past, row['away_team'], glicko.ratings)
+        fac_diffs = factor_matchup_score(h_fac, a_fac)
+        for k, v in fac_diffs.items():
+            df.at[idx, k] = v
+
+        # NOW update Kalman
+        home_xg = float(row.get('home_xg', 1.2) or 1.2)
+        away_xg = float(row.get('away_xg', 1.0) or 1.0)
+        kalman_system.update_match(row['home_team'], row['away_team'], home_xg, away_xg)
+
     # 3. FEATURE COLUMNS & TARGET
+    # KEEP Glicko features, ADD Kalman features:
     FEATURE_COLS_FULL = [
-        # Core Glicko signals (4)
-        'home_glicko', 'home_rd', 'away_glicko', 'away_rd',
-        # Derived strength signals (3)
-        'glicko_signal', 'xg_supremacy', 'draw_affinity',
-        # Form signals (2)
-        'home_neutral_venue_form', 'away_neutral_venue_form',
-        # Context signals (2)
-        'rest_differential', 'stage_pressure',
-        # NEW — Injury signals (2)
-        'injury_differential', 'key_injury_factor',
-        # NEW — Movement signals (2, default 0 when no video)
-        'speed_diff', 'home_total_sprints',
-        # NEW — API distance proxy (1)
-        'press_proxy_diff',
+        # Existing Glicko (KEEP)
+        'home_glicko', 'home_rd', 'away_glicko', 'away_rd', 'glicko_signal',
+        # NEW: Kalman additions
+        'home_kalman_velocity', 'away_kalman_velocity',   # key: improving/declining
+        'kalman_velocity_diff',                            # = home - away velocity
+        'kalman_signal',                                   # = (home_str - away_str) / sqrt(h_unc + a_unc)
+        # Regime
+        'home_regime_coef', 'away_regime_coef', 'regime_factor_diff',
+        # Factor model diffs
+        'factor_momentum_diff', 'factor_quality_diff', 'factor_volatility_diff',
+        # Existing features
+        'xg_supremacy', 'draw_affinity', 'home_neutral_venue_form',
+        'away_neutral_venue_form', 'rest_differential', 'stage_pressure',
+        'injury_differential', 'key_injury_factor', 'press_proxy_diff',
     ]
 
     available_cols = [c for c in FEATURE_COLS_FULL if c in df.columns]
@@ -509,6 +552,7 @@ def main():
             export_team_states(
                 df=form_df,                      # df with rolling features already computed
                 glicko_ratings=glicko.ratings,   # the raw dict returned by compute_glicko_ratings()
+                kalman_system=kalman_system,
                 feature_cols=available_cols,     # the ACTUAL available cols, not FEATURE_COLS
                 output_path=latest_dir / "team_states.json"
             )
@@ -584,79 +628,55 @@ def export_model(model, scaler, meta_learner, feature_cols: list,
 
 import json
 
-def export_team_states(df: pd.DataFrame, glicko_ratings: dict,
+def export_team_states(df: pd.DataFrame, glicko_ratings: dict, kalman_system,
                        feature_cols: list, output_path: str = "model_versions/latest/team_states.json"):
-    """
-    Export per-team state vectors for live inference.
-    Reads Glicko ratings DIRECTLY from glicko_ratings dict (no melt logic).
-    Reads xG/form features from the LAST row per team in the processed dataframe.
-    """
     import json
     from pathlib import Path
 
     team_states = {}
-
-    # Get all unique teams from the dataframe
     all_teams = set(df['home_team'].unique()) | set(df['away_team'].unique())
 
     for team in all_teams:
-        # --- Glicko: read directly from the ratings dict ---
         g = glicko_ratings.get(team, {})
-        glicko  = float(g.get('rating', 1500))
-        rd      = float(g.get('rd', 200))
-        sigma   = float(g.get('sigma', 0.06))
+        k_state = kalman_system.get_or_init(team)
+        regime  = detect_team_regime(team, df)
 
-        # --- Rolling features: get the team's MOST RECENT row as home OR away ---
-        home_rows = df[df['home_team'] == team].tail(3)
-        away_rows = df[df['away_team'] == team].tail(3)
-
-        # Prefer most recent match regardless of home/away
-        recent_rows = pd.concat([home_rows, away_rows]).sort_values('date').tail(3)
-
-        if len(recent_rows) == 0:
-            xg_roll3    = 1.2   # global prior fallback
-            neutral_form = 0.5
-        else:
-            last = recent_rows.iloc[-1]
-            # Detect if team was home or away in the last match
-            if last['home_team'] == team:
-                xg_roll3     = float(last.get('home_xg_rolling_3', 1.2))
-                neutral_form = float(last.get('home_neutral_venue_form', 0.5))
+        # Latest xG rolling from last match
+        last_matches = df[
+            (df['home_team'] == team) | (df['away_team'] == team)
+        ].tail(1)
+        if len(last_matches) > 0:
+            row = last_matches.iloc[0]
+            if row['home_team'] == team:
+                xg_roll3 = float(row.get('home_xg_rolling_3', 1.2) or 1.2)
+                nv_form  = float(row.get('home_neutral_venue_form', 0.5) or 0.5)
             else:
-                xg_roll3     = float(last.get('away_xg_rolling_3', 1.2))
-                neutral_form = float(last.get('away_neutral_venue_form', 0.5))
-
-        # --- h2h draw rate: compute directly from historical matches ---
-        h2h_mask = (
-            ((df['home_team'] == team) | (df['away_team'] == team))
-        )
-        team_matches = df[h2h_mask]
-        if len(team_matches) >= 5:
-            draw_rate = float((team_matches['result'] == 'Draw').mean())
+                xg_roll3 = float(row.get('away_xg_rolling_3', 1.0) or 1.0)
+                nv_form  = float(row.get('away_neutral_venue_form', 0.5) or 0.5)
         else:
-            draw_rate = 0.29   # international football prior
+            xg_roll3 = 1.2; nv_form = 0.5
 
         team_states[team] = {
-            "glicko":              round(glicko, 2),
-            "rd":                  round(rd, 2),
-            "sigma":               round(sigma, 4),
-            "xg_rolling_3":        round(xg_roll3, 3),
-            "neutral_venue_form":  round(neutral_form, 3),
-            "draw_rate":           round(draw_rate, 3),
+            # Glicko (kept for stability)
+            "glicko":             round(float(g.get('rating', 1500)), 2),
+            "rd":                 round(float(g.get('rd', 200)), 2),
+            # Kalman (new)
+            "kalman_strength":    round(k_state.strength, 2),
+            "kalman_velocity":    round(k_state.velocity, 4),
+            "kalman_uncertainty": round(float(k_state.P[0, 0]), 2),
+            # Regime
+            "regime":             regime['regime'],
+            "regime_coef":        regime['coefficient'],
+            # Rolling features
+            "xg_rolling_3":       round(xg_roll3, 3),
+            "neutral_venue_form": round(nv_form, 3),
         }
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'w') as f:
         json.dump(team_states, f, indent=2, sort_keys=True)
-
-    # Validation: check no team has ALL defaults
-    defaulted = [t for t, v in team_states.items()
-                 if v['glicko'] == 1500 and v['rd'] == 200]
-    if defaulted:
-        print(f"  ⚠️  {len(defaulted)} teams still at defaults: {defaulted[:5]}")
-    else:
-        print(f"  ✅ team_states.json: {len(team_states)} teams exported with real values")
-
+    print(f"  ✅ team_states.json: {len(team_states)} teams (Glicko + Kalman + Regime)")
+    
     return team_states
 
 # Export the trained model and meta learner
