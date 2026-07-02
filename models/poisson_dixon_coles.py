@@ -110,10 +110,37 @@ def fit_rho_concentrated(home_teams, away_teams, home_goals, away_goals,
 
 # --- Vectorized Score Matrix -------------------------------------------------
 def score_probability_matrix(lam_h: float, lam_a: float,
-                              rho: float, max_goals: int = 8) -> np.ndarray:
-    """Vectorized scoreline probability matrix using Frank Copula."""
-    matrix = bivariate_score_matrix(lam_h, lam_a, max_g=max_goals)
-    return matrix / np.sum(matrix)
+                              rho: float = None,
+                              max_goals: int = 8) -> np.ndarray:
+    """
+    Dixon-Coles score matrix with tau correction.
+    rho MUST be the fitted MLE value, not a fallback.
+    """
+    from scipy.stats import poisson
+    import numpy as np
+
+    if rho is None:
+        raise ValueError("rho must be provided — never use None. "
+                         "Pass dc_params['rho'] from the fitted model.")
+
+    g  = np.arange(max_goals + 1)
+    ph = poisson.pmf(g, lam_h)
+    pa = poisson.pmf(g, lam_a)
+
+    joint = np.outer(ph, pa)
+
+    # Dixon-Coles tau correction (all 4 low-score cells)
+    tau = np.ones((max_goals + 1, max_goals + 1))
+    tau[0, 0] = max(0.001, 1.0 - lam_h * lam_a * rho)
+    tau[0, 1] = max(0.001, 1.0 + lam_h * rho)
+    tau[1, 0] = max(0.001, 1.0 + lam_a * rho)
+    tau[1, 1] = max(0.001, 1.0 - rho)
+
+    matrix = joint * tau
+    total  = matrix.sum()
+    if total < 1e-9:
+        return joint / joint.sum()   # fallback if tau produces negatives
+    return matrix / total
 
 
 def outcome_probs(matrix: np.ndarray):

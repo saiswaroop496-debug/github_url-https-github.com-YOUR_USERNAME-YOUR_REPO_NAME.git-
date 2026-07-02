@@ -38,6 +38,61 @@ def calculate_real_proxy_xg(row: pd.Series, dc_params=None) -> tuple:
     return round(max(0.15, h_xg), 3), round(max(0.15, a_xg), 3), True
 
 
+def load_and_enrich_dataset(csv_path: str = "data/worldcup_matches.csv") -> pd.DataFrame:
+    """
+    Load dataset and enrich with vision xG where available.
+    Vision xG cached in data/vision_xg_cache/ — only processed once per match.
+    """
+    import json
+    from pathlib import Path
+    
+    # Use DataScraper logic to get base data instead of just reading a generic csv
+    # since train_test.py expects the full historical dataset (dc_df and form_df).
+    # Wait, the user's Fix 7 states: "Replace load_dataset() with load_and_enrich_dataset()".
+    # And it should return dc_df, form_df.
+    scraper = DataScraper()
+    dc_df, form_df = scraper.fetch_fixtures()
+
+    # Apply vision xG enrichment to form_df
+    vision_cache_dir = Path("data/vision_xg_cache")
+    if vision_cache_dir.exists():
+        enriched = 0
+        for cache_file in vision_cache_dir.glob("*_xg.json"):
+            try:
+                with open(cache_file, encoding='utf-8') as f:
+                    vision_data = json.load(f)
+                if vision_data.get('source') != 'vision_xg':
+                    continue
+
+                stem   = cache_file.stem.replace('_xg', '')
+                parts  = stem.split('_vs_')
+                if len(parts) != 2:
+                    continue
+                home_t = parts[0].replace('_', ' ')
+                rest   = parts[1].split('_')
+                away_t = rest[0].replace('_', ' ')
+                date_s = rest[1] if len(rest) > 1 else ""
+
+                mask = (
+                    (form_df['home_team'].str.lower() == home_t.lower()) &
+                    (form_df['away_team'].str.lower() == away_t.lower()) &
+                    (form_df['date'].astype(str).str[:10] == date_s)
+                )
+                if mask.any():
+                    form_df.loc[mask, 'home_xg'] = vision_data['home_xg']
+                    form_df.loc[mask, 'away_xg'] = vision_data['away_xg']
+                    form_df.loc[mask, 'xg_source'] = 'vision'
+                    enriched += 1
+            except Exception:
+                continue
+        print(f"  Vision xG enriched: {enriched} matches")
+
+    if 'xg_source' not in form_df.columns:
+        form_df['xg_source'] = 'proxy'
+        
+    return dc_df, form_df
+
+
 class DataScraper:
     def __init__(self):
         self.mock_gen = MockDataGenerator()

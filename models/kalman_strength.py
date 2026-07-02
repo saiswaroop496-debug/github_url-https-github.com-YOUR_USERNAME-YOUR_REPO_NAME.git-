@@ -50,8 +50,8 @@ def kalman_update(state: KalmanTeamState,
     P_new  = (np.eye(2) - K @ H) @ P_pred
 
     return KalmanTeamState(
-        strength = float(x_new[0]),
-        velocity = float(x_new[1]),
+        strength = float(x_new[0, 0]),
+        velocity = float(x_new[1, 0]),
         P        = P_new
     )
 

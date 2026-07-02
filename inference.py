@@ -141,82 +141,78 @@ def _get_team_state(team_name: str) -> dict:
 
 
 # ─── Feature Construction ─────────────────────────────────────────────────────
-def _build_feature_vector(home: dict, away: dict,
-                           venue_factor: float, stage: str) -> np.ndarray:
+def _build_feature_vector(home_team: str, away_team: str, venue_factor: float, stage: str,
+                            team_states: dict, dc_params: dict, feature_cols: list) -> np.ndarray:
     """
-    Build the exact FEATURE_COLS vector for the base learners.
-    Derived from team states + match context.
-    Column order MUST match manifest["feature_cols"].
+    Build feature vector that exactly matches training FEATURE_COLS_FULL.
+    All 24 possible features mapped — zero-fill only for genuinely missing data.
     """
-    stage_pressure_map = {
-        "group": 0.5, "round_of_16": 0.65,
-        "quarter": 0.80, "semi": 0.90, "final": 1.0
-    }
-    stage_pressure = stage_pressure_map.get(stage, 0.5)
+    h = team_states.get(home_team, {})
+    a = team_states.get(away_team, {})
 
-    # xG gap and draw affinity
-    xg_gap = abs(home["xg_rolling_3"] - away["xg_rolling_3"])
-    draw_affinity = max(0.0, 1.0 - xg_gap / 3.0)
+    # Derived signals
+    h_glicko = float(h.get('glicko', 1500))
+    h_rd     = float(h.get('rd', 200))
+    a_glicko = float(a.get('glicko', 1500))
+    a_rd     = float(a.get('rd', 200))
+    glicko_signal = (h_glicko - a_glicko) / (np.sqrt(h_rd**2 + a_rd**2) + 1e-9)
 
-    # Neutral venue form: 60% away form, 40% home form (V4.1 standard)
-    home_neutral = 0.4 * home["xg_rolling_3"] + 0.6 * home.get("neutral_venue_form", home["xg_rolling_3"])
-    away_neutral = 0.4 * away["xg_rolling_3"] + 0.6 * away.get("neutral_venue_form", away["xg_rolling_3"])
+    h_ks = float(h.get('kalman_strength', h_glicko))
+    a_ks = float(a.get('kalman_strength', a_glicko))
+    h_ku = float(h.get('kalman_uncertainty', 100))
+    a_ku = float(a.get('kalman_uncertainty', 100))
+    h_kv = float(h.get('kalman_velocity', 0.0))
+    a_kv = float(a.get('kalman_velocity', 0.0))
+    kalman_signal   = (h_ks - a_ks) / (np.sqrt(h_ku + a_ku) + 1e-9)
+    kalman_vel_diff = h_kv - a_kv
 
-    # xG supremacy (relative)
-    total_xg = home["xg_rolling_3"] + away["xg_rolling_3"] + 1e-9
-    xg_supremacy = home["xg_rolling_3"] / total_xg
+    h_xg = float(h.get('xg_rolling_3', 1.2))
+    a_xg = float(a.get('xg_rolling_3', 1.0))
+    xg_supremacy  = h_xg / (h_xg + a_xg + 1e-9)
+    xg_gap        = abs(h_xg - a_xg)
+    draw_affinity = max(0, 1.0 - xg_gap / 3.0)
 
-    # Glicko signal
-    rd_combined = np.sqrt(home["rd"]**2 + away["rd"]**2) + 1e-9
-    glicko_signal = (home["glicko"] - away["glicko"]) / rd_combined
+    h_nv  = float(h.get('neutral_venue_form', 0.5))
+    a_nv  = float(a.get('neutral_venue_form', 0.5))
 
-    # Rest differential — estimate from last_match_date if available
-    def days_since(date_str):
-        if not date_str:
-            return 4   # assume normal rest
-        try:
-            d = datetime.fromisoformat(date_str).replace(tzinfo=timezone.utc)
-            return max(1, (datetime.now(timezone.utc) - d).days)
-        except Exception:
-            return 4
+    h_rc  = float(h.get('regime_coef', 1.0))
+    a_rc  = float(a.get('regime_coef', 1.0))
+    regime_diff = h_rc - a_rc
 
-    home_rest = days_since(home.get("last_match_date", ""))
-    away_rest = days_since(away.get("last_match_date", ""))
-    rest_differential = float(home_rest - away_rest)
+    stage_map = {'group':0.0,'round_of_32':0.3,'round_of_16':0.5,
+                 'quarter_final':0.7,'semi_final':0.85,'final':1.0}
+    stage_pressure = stage_map.get(stage, 0.0)
 
-    # Regime filter: if Glicko gap > 400, return None to trigger NO_BET
-    glicko_gap_raw = abs(home["glicko"] - away["glicko"])
-    if glicko_gap_raw > 400:
-        warnings.warn(f"Glicko gap {glicko_gap_raw:.0f} > 400. Regime filter active.")
-        return None
-
-    # Build vector in FEATURE_COLS order (from manifest)
     feature_map = {
-        "home_glicko":             home["glicko"],
-        "home_rd":                 home["rd"],
-        "away_glicko":             away["glicko"],
-        "away_rd":                 away["rd"],
-        "xg_supremacy":            xg_supremacy,
-        "glicko_signal":           glicko_signal,
-        "draw_affinity":           draw_affinity,
-        "home_neutral_venue_form": home_neutral,
-        "away_neutral_venue_form": away_neutral,
-        "rest_differential":       rest_differential,
-        "defensive_balance":       home.get("defensive_balance", 0.0) - away.get("defensive_balance", 0.0),
-        "stage_pressure":          stage_pressure,
-        "h2h_draw_rate":           0.0, # usually from historical df
-        # SAS features — default to 1.0 if not in states
-        "home_sas":                home.get("sas", 1.0),
-        "away_sas":                away.get("sas", 1.0),
-        "sas_differential":        home.get("sas", 1.0) - away.get("sas", 1.0),
-        "sharp_line_movement":     0.0,   # provided by caller if available
-        # NEW FEATURES:
-        "kalman_signal":           (home.get("strength", 1500) - away.get("strength", 1500)) / (np.sqrt(home.get("uncertainty", 100)**2 + away.get("uncertainty", 100)**2) + 1e-9),
-        "kalman_velocity_diff":    home.get("velocity", 0.0) - away.get("velocity", 0.0),
-        "regime_factor_diff":      home.get("regime_coefficient", 1.0) - away.get("regime_coefficient", 1.0),
+        'home_glicko':               h_glicko,
+        'home_rd':                   h_rd,
+        'away_glicko':               a_glicko,
+        'away_rd':                   a_rd,
+        'glicko_signal':             glicko_signal,
+        'home_kalman_velocity':      h_kv,
+        'away_kalman_velocity':      a_kv,
+        'kalman_velocity_diff':      kalman_vel_diff,
+        'kalman_signal':             kalman_signal,
+        'home_regime_coef':          h_rc,
+        'away_regime_coef':          a_rc,
+        'regime_factor_diff':        regime_diff,
+        'xg_supremacy':              xg_supremacy,
+        'draw_affinity':             draw_affinity,
+        'home_neutral_venue_form':   h_nv,
+        'away_neutral_venue_form':   a_nv,
+        'rest_differential':         0.0,   # not available at inference
+        'stage_pressure':            stage_pressure,
+        'injury_differential':       float(h.get('injuries', 0)) - float(a.get('injuries', 0)),
+        'key_injury_factor':         float(h.get('key_injury_factor', 0.0)),
+        'press_proxy_diff':          0.0,   # not available pre-match
+        'tournament_momentum_diff':  float(h.get('tournament_momentum', 0)) - float(a.get('tournament_momentum', 0)),
+        'glicko_velocity_diff':      float(h.get('glicko_velocity', 0)) - float(a.get('glicko_velocity', 0)),
+        'factor_momentum_diff':      float(h.get('factor_momentum', 0)) - float(a.get('factor_momentum', 0)),
     }
 
-    return np.array([feature_map.get(col, 0.0) for col in _feature_cols], dtype=float)
+    vec = np.array([feature_map.get(col, 0.0) for col in feature_cols])
+    return vec.reshape(1, -1)[0] # return 1d array to match old usage
+
 
 
 # ─── Poisson Dixon-Coles Blending ────────────────────────────────────────────
@@ -260,6 +256,7 @@ def _compute_betting_math(model_probs: dict,
                            draw_odds: float = None,
                            away_odds: float = None,
                            ah_home_odds: float = None,
+                           ah_away_odds: float = None,
                            ah_handicap: float = None,
                            over_odds: float = None,
                            under_odds: float = None,
@@ -289,10 +286,10 @@ def _compute_betting_math(model_probs: dict,
 
     all_edges_dict = {o: round(e, 4) for o, e in zip(outcomes, edges)}
 
-    if STAT_ARB_AVAILABLE and all([ah_home_odds, ah_handicap is not None, over_odds, under_odds, score_matrix is not None]):
+    if STAT_ARB_AVAILABLE and all([ah_home_odds, ah_away_odds, ah_handicap is not None, over_odds, under_odds, score_matrix is not None]):
         arb_res = compute_cross_market_arb(
             home_odds, draw_odds, away_odds,
-            ah_home_odds, ah_handicap,
+            ah_home_odds, ah_away_odds, ah_handicap,
             over_odds, under_odds,
             score_matrix
         )
@@ -382,28 +379,64 @@ def validate_feature_alignment(manifest_cols: list, constructed_vec: np.ndarray)
 def _cached_inference(home_team: str, away_team: str,
                        venue_factor: float, stage: str,
                        states_hash: str) -> str:
-    """
-    Core inference — cached by team names + venue + stage + states hash.
-    Returns JSON string (hashable for lru_cache).
-    """
-    # 0. Lazy-load artifacts
+    """Core inference — cached."""
     _ensure_loaded()
-    
-    # 1. Retrieve team states
-    home_state = _get_team_state(home_team)
-    away_state = _get_team_state(away_team)
+    dc_params   = _dc_params if _dc_params else {"rho": -0.13, "home_adv": 1.2, "neutral_gamma": 1.0, "attack": {}, "defense": {}}
+    team_states = _team_states
+    feature_cols = _feature_cols
 
-    # 2. Build feature vector
-    X = _build_feature_vector(home_state, away_state, venue_factor, stage)
-    if X is not None:
-        validate_feature_alignment(_feature_cols, X)
-    if X is None:
-        return json.dumps({
-            "home_team": home_team, "away_team": away_team,
-            "regime_filtered": True,
-            "message": "Regime filter: Glicko gap > 400. No prediction issued.",
-            "model_version": "6.2"
-        })
+    # Compute lambdas
+    attack = dc_params.get("attack", {})
+    defense = dc_params.get("defense", {})
+    home_adv = dc_params.get("home_adv", 1.2)
+    lam_h = np.exp(attack.get(home_team, 0.3) - defense.get(away_team, -0.5) + home_adv * venue_factor)
+    lam_a = np.exp(attack.get(away_team, 0.0) - defense.get(home_team, -0.5))
+    lam_h = min(max(lam_h, 0.01), 15.0)
+    lam_a = min(max(lam_a, 0.01), 15.0)
+    rho = dc_params.get('rho', -0.13)
+
+    # DC probabilities
+    from models.poisson_dixon_coles import score_probability_matrix, outcome_probs
+    from models.poisson_dixon_coles import extract_btts_ou
+    matrix     = score_probability_matrix(lam_h, lam_a, rho)
+    dc_h, dc_d, dc_a = outcome_probs(matrix)
+    btts_ou    = extract_btts_ou(matrix)
+
+    dc_result = {
+        'home_win': round(dc_h, 4),
+        'draw':     round(dc_d, 4),
+        'away_win': round(dc_a, 4),
+        **btts_ou
+    }
+
+    # Build feature vector
+    X = _build_feature_vector(home_team, away_team, venue_factor, stage,
+                               team_states, dc_params, feature_cols)
+
+    # ML predictions
+    try:
+        X_input = _scaler.transform(X.reshape(1, -1)) if _scaler else X.reshape(1, -1)
+        cat_h, cat_a, xgb_h, xgb_a, ridge_h, ridge_a = _base_learners
+        pred_h = (cat_h.predict(X_input) + xgb_h.predict(X_input) + ridge_h.predict(X_input)) / 3.0
+        pred_a = (cat_a.predict(X_input) + xgb_a.predict(X_input) + ridge_a.predict(X_input)) / 3.0
+        
+        from models.base_learners import xg_to_probs
+        base_blend = xg_to_probs(pred_h, pred_a)[0]
+    except Exception as e:
+        warnings.warn(f"ML inference failed ({e}), falling back to DC")
+        base_blend = np.array([dc_h, dc_d, dc_a])
+
+    return json.dumps({
+        "home_team":      home_team,
+        "away_team":      away_team,
+        "base_blend":     base_blend.tolist(),
+        "dc_probs":       [dc_h, dc_d, dc_a],
+        "dc_result":      dc_result,
+        "signals": {
+            "kalman_velocity_diff": float(X[_feature_cols.index("kalman_velocity_diff")]) if "kalman_velocity_diff" in _feature_cols else 0.0,
+            "draw_affinity":        float(X[_feature_cols.index("draw_affinity")]) if "draw_affinity" in _feature_cols else 0.0
+        }
+    })
 
     # 3. Scale
     X_input = _scaler.transform(X.reshape(1, -1)) if _scaler else X.reshape(1, -1)
@@ -450,7 +483,7 @@ def run_inference(home_team: str, away_team: str,
                    venue_factor: float = 0.3,
                    stage: str = "group",
                    home_odds=None, draw_odds=None, away_odds=None,
-                   ah_home_odds=None, ah_handicap=None, over_odds=None, under_odds=None,
+                   ah_home_odds=None, ah_away_odds=None, ah_handicap=None, over_odds=None, under_odds=None,
                    # ── LIVE PARAMETERS ──────────────────────────────────
                    elapsed_minutes: int = None,
                    home_goals_live: int = None,
@@ -601,7 +634,7 @@ def run_inference(home_team: str, away_team: str,
         betting = _compute_betting_math(
             {"home_win": result["home_win_prob"], "draw": result["draw_prob"], "away_win": result["away_win_prob"]},
             home_odds, draw_odds, away_odds,
-            ah_home_odds, ah_handicap, over_odds, under_odds,
+            ah_home_odds, ah_away_odds, ah_handicap, over_odds, under_odds,
             dc_result.get("score_matrix") if isinstance(dc_result, dict) else None
         )
         result["no_vig_edge"] = betting.get("no_vig_edge")

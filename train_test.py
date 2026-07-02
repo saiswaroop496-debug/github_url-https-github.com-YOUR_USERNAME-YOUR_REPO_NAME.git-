@@ -113,23 +113,34 @@ class FastDixonColes:
         return probs
 
 
-def xg_to_probs(pred_h, pred_a):
-    """Convert xG predictions to match outcome probabilities via Poisson grid."""
-    n = len(pred_h)
-    probs = np.zeros((n, 3))
-    for i in range(n):
-        lam, mu = max(pred_h[i], 0.05), max(pred_a[i], 0.05)
-        p_h = p_d = p_a = 0.0
-        for gx in range(8):
-            for gy in range(8):
-                p = poisson.pmf(gx, lam) * poisson.pmf(gy, mu)
-                if gx > gy: p_h += p
-                elif gx == gy: p_d += p
-                else: p_a += p
-        total = p_h + p_d + p_a
-        probs[i] = [p_h/total, p_d/total, p_a/total] if total > 0 else [0.33, 0.34, 0.33]
-    return probs
+from models.base_learners import xg_to_probs
 
+
+
+def compute_dc_probs(row: pd.Series, dc_model_dict: dict) -> np.ndarray:
+    from models.poisson_dixon_coles import score_probability_matrix, outcome_probs
+    import math
+    
+    t1 = row['home_team']
+    t2 = row['away_team']
+    
+    attack = dc_model_dict.get('attack', {})
+    defense = dc_model_dict.get('defense', {})
+    home_adv = dc_model_dict.get('home_adv', 0.0)
+    rho = dc_model_dict.get('rho', 0.0)
+    
+    is_neutral = row.get('is_neutral', 0)
+    h_adv = home_adv if not is_neutral else 0.0
+    
+    lam_h = attack.get(t1, 0.0) - defense.get(t2, 0.0) + h_adv
+    lam_a = attack.get(t2, 0.0) - defense.get(t1, 0.0)
+    
+    lam_h = min(max(math.exp(lam_h), 0.01), 15.0)
+    lam_a = min(max(math.exp(lam_a), 0.01), 15.0)
+    
+    matrix = score_probability_matrix(lam_h, lam_a, rho)
+    h, d, a = outcome_probs(matrix)
+    return np.array([h, d, a])
 
 # =====================================================================
 # MAIN PIPELINE
@@ -147,29 +158,10 @@ def main():
     update_dataset(cutoff_date="2026-06-01")
 
     # 1. DATA
-    scraper = DataScraper()
-    dc_df, form_df = scraper.fetch_fixtures()
-    print(f"\n[DATA]  dc_df (2015+): {len(dc_df)} matches")
-    print(f"[DATA]  form_df (2018+): {len(form_df)} matches")
-
-    # DIXON-COLES (vectorized)
-    print(f"\n[DC MODEL]  Fitting vectorized Dixon-Coles on {len(dc_df)} matches ...")
-    dc_model = FastDixonColes()
-    dc_model.fit(dc_df)
-
-    print("[DATA]  Recomputing proxy xG using fitted DC parameters...")
-    from data.scraper import calculate_real_proxy_xg
-    dc_params_for_xg = {"team_idx": {t: t for t in dc_model.attack.keys()}, "attack": dc_model.attack}
-    
-    # Temporarily drop shots to force calculate_real_proxy_xg to use DC params instead of circular goals
-    form_df_for_xg = form_df.copy()
-    if 'home_shots' in form_df_for_xg: del form_df_for_xg['home_shots']
-    if 'away_shots' in form_df_for_xg: del form_df_for_xg['away_shots']
-    
-    xg_values = form_df_for_xg.apply(lambda row: calculate_real_proxy_xg(row, dc_params_for_xg), axis=1)
-    form_df['home_xg'] = [x[0] for x in xg_values]
-    form_df['away_xg'] = [x[1] for x in xg_values]
-    form_df['is_xg_proxy'] = [x[2] for x in xg_values]
+    print("\n[DATA] Loading and enriching dataset with vision xG...")
+    from data.scraper import load_and_enrich_dataset
+    dc_df, form_df = load_and_enrich_dataset("data/worldcup_matches.csv")
+    print(f"[DATA] form_df: {len(form_df)} matches")
 
 
     # 2. FEATURES
@@ -273,17 +265,6 @@ def main():
     X_full_temp = df[available_cols].copy()
     y_full_temp = df['home_goals']
     
-    print("\n[FEATURE SELECTION] Selecting top 15 features...")
-    cat_fs = CatBoostRegressor(iterations=150, learning_rate=0.05, depth=4, verbose=0, random_seed=42)
-    cat_fs.fit(X_full_temp, y_full_temp)
-    
-    importances = cat_fs.get_feature_importance()
-    ranked_idx = np.argsort(importances)[::-1]
-    
-    selected_cols = [available_cols[i] for i in ranked_idx[:15]]
-    print(f"  Selected 15 features: {selected_cols}")
-    
-    available_cols = selected_cols
     X = df[available_cols].copy()
     y_home_goals = df['home_goals']
     y_away_goals = df['away_goals']
@@ -294,12 +275,7 @@ def main():
     for cls, name in [(0, 'Home Win'), (1, 'Draw'), (2, 'Away Win')]:
         print(f"          {name}:  {(y_outcome == cls).sum()} ({(y_outcome == cls).mean()*100:.1f}%)")
 
-    # DC probs for the form_df matches
-    dc_probs = dc_model.predict_proba_batch(
-
-        df['home_team'].values, df['away_team'].values,
-        df['crowd_factor'].values if 'crowd_factor' in df.columns else None
-    )
+    # DC probs will be computed per-fold
 
     # 5. WALK-FORWARD VALIDATION
     N_FOLDS = 5
@@ -344,71 +320,115 @@ def main():
             print(f"\n  --- Fold {fold_idx+1} ---  Skipping (train_size={len(train_idx)} < 200)")
             continue
 
-        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_tr_h = y_home_goals.iloc[train_idx]
-        y_tr_a = y_away_goals.iloc[train_idx]
+        X_train_df = X.iloc[train_idx]
+        X_test_df  = X.iloc[test_idx]
+        y_tr_h = y_home_goals.iloc[train_idx].values
+        y_tr_a = y_away_goals.iloc[train_idx].values
         y_test_out = y_outcome[test_idx]
         y_train_out = y_outcome[train_idx]
     
         dates_train = df['date'].iloc[train_idx]
-        w_train = compute_match_weights(dates_train)
+        w_train = np.asarray(compute_match_weights(dates_train))
 
         print(f"\n  --- Fold {fold_idx+1} ---  train={len(train_idx)}, test={len(test_idx)}")
+        
+        # FIX 1: DC Model fitted on fold train
+        df_train = df.iloc[train_idx].copy()
+        df_test  = df.iloc[test_idx].copy()
+        print(f"  [Fold {fold_idx+1}] Fitting DC on {len(df_train)} train matches...")
+        dc_model_fold = FastDixonColes()
+        dc_model_fold.fit(df_train)
+        
+        dc_model_dict = {
+            'attack': dc_model_fold.attack,
+            'defense': dc_model_fold.defense,
+            'home_adv': dc_model_fold.home_adv,
+            'rho': dc_model_fold.rho
+        }
 
-        # Base Learners
-        cat_h = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
-                                   iterations=250, learning_rate=0.04, subsample=0.8,
-                                   random_seed=42, verbose=0, thread_count=1)
-        xgb_h = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
-                              n_estimators=200, learning_rate=0.04, subsample=0.8,
-                              random_state=42, verbosity=0, n_jobs=1)
-        ridge_h = Ridge(alpha=15.0)
+        dc_probs_train = np.array([compute_dc_probs(row, dc_model_dict) for _, row in df_train.iterrows()])
+        dc_probs_test  = np.array([compute_dc_probs(row, dc_model_dict) for _, row in df_test.iterrows()])
 
-        cat_a = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
-                                   iterations=250, learning_rate=0.04, subsample=0.8,
-                                   random_seed=42, verbose=0, thread_count=1)
-        xgb_a = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
-                              n_estimators=200, learning_rate=0.04, subsample=0.8,
-                              random_state=42, verbosity=0, n_jobs=1)
-        ridge_a = Ridge(alpha=15.0)
+        # FIX 3: Feature selection inside loop
+        from sklearn.inspection import permutation_importance
+        X_train_full = X_train_df.values
+        if len(available_cols) > 15:
+            lr_fast = LogisticRegression(C=0.5, max_iter=500, random_state=42)
+            lr_fast.fit(X_train_full, y_train_out)
+            result_imp = permutation_importance(
+                lr_fast, X_train_full, y_train_out,
+                n_repeats=3, random_state=42, scoring='neg_log_loss'
+            )
+            top_idx = np.argsort(result_imp.importances_mean)[::-1][:15]
+            selected_cols_fold = [available_cols[i] for i in sorted(top_idx)]
+            print(f"  [Fold {fold_idx+1}] Selected 15 features")
+        else:
+            selected_cols_fold = available_cols
 
+        X_train = X_train_df[selected_cols_fold].values
+        X_test  = X_test_df[selected_cols_fold].values
+
+        # FIX 2: Meta-Learner Inner CV OOF
+        from sklearn.model_selection import TimeSeriesSplit
+        inner_cv = TimeSeriesSplit(n_splits=3)
+        oof_ml = np.zeros((len(X_train), 3))
+        
+        def build_bls():
+            cat_h = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
+                                       iterations=250, learning_rate=0.04, subsample=0.8,
+                                       random_seed=42, verbose=0, thread_count=1)
+            xgb_h = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
+                                  n_estimators=200, learning_rate=0.04, subsample=0.8,
+                                  random_state=42, verbosity=0, n_jobs=1)
+            ridge_h = Ridge(alpha=15.0)
+
+            cat_a = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
+                                       iterations=250, learning_rate=0.04, subsample=0.8,
+                                       random_seed=42, verbose=0, thread_count=1)
+            xgb_a = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
+                                  n_estimators=200, learning_rate=0.04, subsample=0.8,
+                                  random_state=42, verbosity=0, n_jobs=1)
+            ridge_a = Ridge(alpha=15.0)
+            return cat_h, xgb_h, ridge_h, cat_a, xgb_a, ridge_a
+            
+        for inner_tr_idx, inner_val_idx in inner_cv.split(X_train):
+            ch, xh, rh, ca, xa, ra = build_bls()
+            ch.fit(X_train[inner_tr_idx], y_tr_h[inner_tr_idx], sample_weight=w_train[inner_tr_idx])
+            xh.fit(X_train[inner_tr_idx], y_tr_h[inner_tr_idx], sample_weight=w_train[inner_tr_idx])
+            rh.fit(X_train[inner_tr_idx], y_tr_h[inner_tr_idx], sample_weight=w_train[inner_tr_idx])
+            
+            ca.fit(X_train[inner_tr_idx], y_tr_a[inner_tr_idx], sample_weight=w_train[inner_tr_idx])
+            xa.fit(X_train[inner_tr_idx], y_tr_a[inner_tr_idx], sample_weight=w_train[inner_tr_idx])
+            ra.fit(X_train[inner_tr_idx], y_tr_a[inner_tr_idx], sample_weight=w_train[inner_tr_idx])
+            
+            ph = np.clip((ch.predict(X_train[inner_val_idx]) + xh.predict(X_train[inner_val_idx]) + rh.predict(X_train[inner_val_idx])) / 3.0, 0.3, 4.0)
+            pa = np.clip((ca.predict(X_train[inner_val_idx]) + xa.predict(X_train[inner_val_idx]) + ra.predict(X_train[inner_val_idx])) / 3.0, 0.3, 4.0)
+            oof_ml[inner_val_idx] = xg_to_probs(ph, pa)
+            
+        # Refit on all train
+        cat_h, xgb_h, ridge_h, cat_a, xgb_a, ridge_a = build_bls()
         cat_h.fit(X_train, y_tr_h, sample_weight=w_train)
         xgb_h.fit(X_train, y_tr_h, sample_weight=w_train)
         ridge_h.fit(X_train, y_tr_h, sample_weight=w_train)
-    
         cat_a.fit(X_train, y_tr_a, sample_weight=w_train)
         xgb_a.fit(X_train, y_tr_a, sample_weight=w_train)
         ridge_a.fit(X_train, y_tr_a, sample_weight=w_train)
-
-        # Test predictions
+        
         pred_h_test = np.clip((cat_h.predict(X_test) + xgb_h.predict(X_test) + ridge_h.predict(X_test)) / 3.0, 0.3, 4.0)
         pred_a_test = np.clip((cat_a.predict(X_test) + xgb_a.predict(X_test) + ridge_a.predict(X_test)) / 3.0, 0.3, 4.0)
         ml_probs_test = xg_to_probs(pred_h_test, pred_a_test)
+        ml_probs_train = oof_ml
+        
+        augmented_test = np.hstack([ml_probs_test, dc_probs_test, dc_probs_test])
+        augmented_train = np.hstack([ml_probs_train, dc_probs_train, dc_probs_train])
 
-        # Train predictions (for meta-learner)
-        pred_h_tr = np.clip((cat_h.predict(X_train) + xgb_h.predict(X_train) + ridge_h.predict(X_train)) / 3.0, 0.3, 4.0)
-        pred_a_tr = np.clip((cat_a.predict(X_train) + xgb_a.predict(X_train) + ridge_a.predict(X_train)) / 3.0, 0.3, 4.0)
-        ml_probs_train = xg_to_probs(pred_h_tr, pred_a_tr)
-
-        # Feed ML probabilities and DC probabilities as 9 features to the meta-learner
-        # Features 0-2: ML Ensembles
-        # Features 3-5: Dixon-Coles Probs
-        # Features 6-8: Bayesian Prior (DC probs during training, bookmaker odds during inference)
-        augmented_test = np.hstack([ml_probs_test, dc_probs[test_idx], dc_probs[test_idx]])
-        augmented_train = np.hstack([ml_probs_train, dc_probs[train_idx], dc_probs[train_idx]])
-
-        # Meta-Learner with SMOTE and recalibration
-        from models.meta_learner import fit_meta_learner, predict_with_draw_threshold
-    
-        # Convert integer labels to strings for TwoHeadMetaLearner
+        # Meta-Learner
+        from models.meta_learner import fit_meta_learner
         label_map = {0: 'Home Win', 1: 'Draw', 2: 'Away Win'}
         y_train_str = np.array([label_map[y] for y in y_train_out])
         
         meta_lr = fit_meta_learner(augmented_train, y_train_str)
-    
         final_probs = meta_lr.predict_proba(augmented_test)
-    
-        # Use calibrated probabilities directly (argmax is invariant to Temp Scaling)
         preds = np.argmax(final_probs, axis=1)
         
         acc = accuracy_score(y_test_out, preds)
@@ -494,15 +514,7 @@ def main():
     for i, name in enumerate(label_names):
         print(f"  Actual {name:>8s}  {cm[i][0]:>4d}  {cm[i][1]:>4d}  {cm[i][2]:>4d}")
 
-    # DC standalone
-    print(f"\n{'='*70}")
-    print(f"  DIXON-COLES STANDALONE")
-    print(f"{'='*70}")
-    dc_preds_class = dc_probs.argmax(axis=1)
-    dc_acc = accuracy_score(y_outcome, dc_preds_class)
-    dc_ll = log_loss(y_outcome, dc_probs, labels=[0, 1, 2])
-    print(f"  Accuracy:   {dc_acc*100:.2f}%")
-    print(f"  Log-Loss:   {dc_ll:.4f}")
+
 
     # Per-fold table
     print(f"\n{'='*70}")
@@ -523,7 +535,7 @@ def main():
     random_ll = log_loss(y_outcome, np.tile(prior, (len(y_outcome), 1)), labels=[0, 1, 2])
     random_acc = prior.max()
     print(f"  Class-Prior Baseline:  Acc = {random_acc*100:.1f}%,  Log-Loss = {random_ll:.4f}")
-    print(f"  Dixon-Coles:           Acc = {dc_acc*100:.1f}%,  Log-Loss = {dc_ll:.4f}")
+
     print(f"  V7.2 Ensemble (WF):    Acc = {np.mean(accs)*100:.1f}%,  Log-Loss = {np.mean(lls):.4f}")
 
     improvement = (np.mean(accs) - random_acc) / random_acc * 100
@@ -561,6 +573,9 @@ def main():
 
     # --- Export logic ---
     try:
+        available_cols = selected_cols_fold
+        dc_model = dc_model_fold
+
         base_learners = [cat_h, cat_a, xgb_h, xgb_a, ridge_h, ridge_a]
         build_dir, is_promoted = export_model(base_learners, None, meta_lr, available_cols, deployment_metrics)
     

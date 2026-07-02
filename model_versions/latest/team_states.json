@@ -17,8 +17,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 70.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "Australia": {
@@ -72,8 +72,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 62.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "Canada": {
@@ -160,8 +160,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 77.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.2
   },
   "Egypt": {
@@ -182,8 +182,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 82.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "France": {
@@ -193,8 +193,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 68.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "Germany": {
@@ -204,8 +204,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 78.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "Ghana": {
@@ -215,8 +215,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 100.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "Haiti": {
@@ -237,8 +237,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 90.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "Iraq": {
@@ -270,8 +270,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 73.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.2
   },
   "Jordan": {
@@ -292,8 +292,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 59.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.2
   },
   "Morocco": {
@@ -303,8 +303,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 86.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.2
   },
   "Netherlands": {
@@ -314,8 +314,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 77.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "New Zealand": {
@@ -369,8 +369,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 74.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "Qatar": {
@@ -391,8 +391,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 75.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "Scotland": {
@@ -446,8 +446,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 65.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "Sweden": {
@@ -468,8 +468,8 @@
     "kalman_velocity": NaN,
     "neutral_venue_form": 0.5,
     "rd": 83.0,
-    "regime": "mean_reverting",
-    "regime_coef": 0.8,
+    "regime": "random_walk",
+    "regime_coef": 1.0,
     "xg_rolling_3": 1.0
   },
   "Tunisia": {

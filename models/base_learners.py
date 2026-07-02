@@ -5,6 +5,29 @@ from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
 from sklearn.linear_model import Ridge
 
+def xg_to_probs(pred_h, pred_a, rho=-0.13):
+    """
+    Convert expected goals to 1X2 probabilities via DC score matrix.
+    Moved here from train_test.py to prevent circular imports.
+    Handles both scalar and array inputs.
+    """
+    from models.poisson_dixon_coles import score_probability_matrix, outcome_probs
+    
+    if isinstance(pred_h, (list, np.ndarray, pd.Series)):
+        n = len(pred_h)
+        probs = np.zeros((n, 3))
+        for i in range(n):
+            lam_h, lam_a = max(pred_h[i], 0.01), max(pred_a[i], 0.01)
+            matrix = score_probability_matrix(lam_h, lam_a, rho=rho)
+            h, d, a = outcome_probs(matrix)
+            probs[i] = [h, d, a]
+        return probs
+    else:
+        lam_h, lam_a = max(pred_h, 0.01), max(pred_a, 0.01)
+        matrix = score_probability_matrix(lam_h, lam_a, rho=rho)
+        return outcome_probs(matrix)
+
+
 class PurgedTimeSeriesSplit:
     def __init__(self, n_splits=5, embargo_gap=4):
         self.n_splits = n_splits

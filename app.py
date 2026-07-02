@@ -18,6 +18,7 @@ def get_mock_data():
 # Core imports — always available
 from inference import run_inference
 import json
+import warnings
 from pathlib import Path
 
 # Optional ML imports — only import what exists
@@ -323,6 +324,7 @@ else:
 # ─── TIER GATE (session-state based, no hard auth — proof-of-concept) ─────────
 import streamlit as st
 import json
+import warnings
 from pathlib import Path
 
 # Load real metrics from manifest
@@ -525,16 +527,19 @@ if live_mode and is_syndicate:
 
     # Simulate probability curve from 0 to elapsed
     from models.poisson_dixon_coles import live_in_play_predict
-    from inference import _load_dc_params, _compute_prematch_lambdas, _load_team_states
+    import inference
 
-    dc_params   = _load_dc_params()
-    team_states = _load_team_states()
+    inference._ensure_loaded()
+    dc_params = inference._dc_params or {}
     
     t1 = [k for k, v in team_display.items() if v == team1][0]
     t2 = [k for k, v in team_display.items() if v == team2][0]
 
-    lam_h, lam_a = _compute_prematch_lambdas(t1, t2, venue_factor,
-                                               dc_params, team_states)
+    attack = dc_params.get("attack", {})
+    defense = dc_params.get("defense", {})
+    home_adv = dc_params.get("home_adv", 0.3)
+    lam_h = np.exp(attack.get(t1, 0) - defense.get(t2, 0) + home_adv * venue_factor)
+    lam_a = np.exp(attack.get(t2, 0) - defense.get(t1, 0))
     rho = dc_params.get("rho", -0.13)
 
     minutes   = list(range(0, elapsed + 1, 5))
