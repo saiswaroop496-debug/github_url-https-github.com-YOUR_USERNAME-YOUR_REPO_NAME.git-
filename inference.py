@@ -212,7 +212,7 @@ def _build_feature_vector(home: dict, away: dict,
         "sharp_line_movement":     0.0,   # provided by caller if available
         # NEW FEATURES:
         "kalman_signal":           (home.get("strength", 1500) - away.get("strength", 1500)) / (np.sqrt(home.get("uncertainty", 100)**2 + away.get("uncertainty", 100)**2) + 1e-9),
-        "velocity_diff":           home.get("velocity", 0.0) - away.get("velocity", 0.0),
+        "kalman_velocity_diff":    home.get("velocity", 0.0) - away.get("velocity", 0.0),
         "regime_factor_diff":      home.get("regime_coefficient", 1.0) - away.get("regime_coefficient", 1.0),
     }
 
@@ -471,7 +471,10 @@ def _cached_inference(home_team: str, away_team: str,
         "btts_yes":       dc_result.get("btts_yes"),
         "over_25":        dc_result.get("over_25"),
         "regime_filtered":False,
-        "model_version":  "6.2",
+        "signals": {
+            "kalman_velocity_diff": float(X[_feature_cols.index("kalman_velocity_diff")]) if "kalman_velocity_diff" in _feature_cols else 0.0
+        },
+        "model_version":  "7.1",
         "timestamp":      datetime.now(timezone.utc).isoformat()
     })
 
