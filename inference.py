@@ -420,7 +420,8 @@ def run_inference(home_team: str, away_team: str,
                    home_goals_live: int = None,
                    away_goals_live: int = None,
                    red_cards: dict = None,
-                   live_state: dict = None) -> dict:
+                   live_state: dict = None,
+                   match_period: str = "regular") -> dict:
     """
     Unified inference entry point.
     If elapsed_minutes is provided → In-Play mode (DC only).
@@ -429,39 +430,76 @@ def run_inference(home_team: str, away_team: str,
     is_live = elapsed_minutes is not None
     _ensure_loaded(is_live=is_live)
 
-    if is_live:
-        # ── IN-PLAY: Dixon-Coles time-decay only ─────────────────────────
-        if _dc_params is None:
-            lam_h, lam_a, rho = 1.4, 1.0, -0.13
+    if _dc_params is None:
+        lam_h, lam_a, rho = 1.4, 1.0, -0.13
+    else:
+        attack   = _dc_params.get("attack", {})
+        defense  = _dc_params.get("defense", {})
+        home_adv = _dc_params.get("home_adv", 0.3)
+        rho      = _dc_params.get("rho", -0.13)
+        
+        if home_team in attack and away_team in attack:
+            eff_ha = home_adv * venue_factor
+            lam_h = np.exp(attack[home_team] - defense[away_team] + eff_ha)
+            lam_a = np.exp(attack[away_team] - defense[home_team])
         else:
-            attack   = _dc_params.get("attack", {})
-            defense  = _dc_params.get("defense", {})
-            home_adv = _dc_params.get("home_adv", 0.3)
-            rho      = _dc_params.get("rho", -0.13)
-            
-            if home_team in attack and away_team in attack:
-                eff_ha = home_adv * venue_factor
-                lam_h = np.exp(attack[home_team] - defense[away_team] + eff_ha)
-                lam_a = np.exp(attack[away_team] - defense[home_team])
-            else:
-                lam_h, lam_a = 1.4, 1.0
+            lam_h, lam_a = 1.4, 1.0
 
-        from models.poisson_dixon_coles import live_in_play_predict
-        result = live_in_play_predict(
-            lam_h_prematch=lam_h,
-            lam_a_prematch=lam_a,
+    home_state = _get_team_state(home_team)
+    away_state = _get_team_state(away_team)
+    glicko_ratio = (home_state.get("glicko", 1500) / (away_state.get("glicko", 1500) + 1e-9))
+
+    from models.match_rules import predict_with_stage_rules, KNOCKOUT_STAGES, extra_time_probs
+
+    if is_live:
+        # ── IN-PLAY: Dixon-Coles time-decay + Match Rules ─────────────────────────
+        result = predict_with_stage_rules(
+            stage=stage,
+            lam_h=lam_h, lam_a=lam_a, rho=rho,
+            glicko_ratio=glicko_ratio,
             elapsed=elapsed_minutes,
             home_goals=home_goals_live or 0,
             away_goals=away_goals_live or 0,
-            rho=rho,
-            red_cards=red_cards,
-            live_state=live_state
+            match_period=match_period,
+            red_cards=red_cards
         )
+        # Ensure base keys expected by downstream exist
+        result["home_win_prob"] = result.get("home_win", 0.0)
+        result["draw_prob"] = result.get("draw", 0.0)
+        result["away_win_prob"] = result.get("away_win", 0.0)
+        
+        if "final_pick" not in result:
+            probs = [result["home_win_prob"], result["draw_prob"], result["away_win_prob"]]
+            result["final_pick"] = ["Home Win", "Draw", "Away Win"][int(np.argmax(probs))]
     else:
-        # ── PRE-MATCH: Full ML ensemble + DC blend ─────────────────────
+        # ── PRE-MATCH: Full ML ensemble + Match Rules ─────────────────────
         states_hash = _get_states_hash()
         result_json = _cached_inference(home_team, away_team, venue_factor, stage, states_hash)
         result = json.loads(result_json)
+        
+        if stage in KNOCKOUT_STAGES:
+            # Overwrite the ML probabilities using the Extra Time redistributor
+            h, d, a = result["home_win_prob"], result["draw_prob"], result["away_win_prob"]
+            et = extra_time_probs(lam_h, lam_a, rho, 0, 0, glicko_ratio)
+            
+            p_home = h + d * et['home_win']
+            p_away = a + d * et['away_win']
+            total = p_home + p_away
+            
+            result["home_win_prob"] = round(p_home / total, 4)
+            result["away_win_prob"] = round(p_away / total, 4)
+            result["draw_prob"] = 0.0
+            
+            result["p_draw_at_90"] = round(d, 4)
+            result["p_extra_time"] = round(d * et['p_extra_time'], 4)
+            result["p_penalties"] = round(d * et['p_penalties'], 4)
+            result["penalty_home_win"] = round(d * et['penalty_home_win'], 4)
+            result["penalty_away_win"] = round(d * et['penalty_away_win'], 4)
+            result["stage"] = stage
+            result["allows_draw"] = False
+            
+            probs = [result["home_win_prob"], result["draw_prob"], result["away_win_prob"]]
+            result["final_pick"] = ["Home Win", "Draw", "Away Win"][int(np.argmax(probs))]
 
     # Add betting signals if odds provided
     if all([home_odds, draw_odds, away_odds]):

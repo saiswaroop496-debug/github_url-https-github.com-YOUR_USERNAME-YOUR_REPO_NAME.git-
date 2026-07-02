@@ -130,34 +130,191 @@ st.sidebar.markdown("---")
 live_mode = st.sidebar.toggle("📡 Live In-Play Mode", value=False)
 
 if live_mode:
-    st.sidebar.markdown("### Live Match State")
-    elapsed   = st.sidebar.slider("Elapsed Minutes", 0, 90, 45)
-    live_hg   = st.sidebar.number_input("Home Goals", 0, 10, 0, step=1)
-    live_ag   = st.sidebar.number_input("Away Goals", 0, 10, 0, step=1)
-    home_reds = st.sidebar.number_input("Home Red Cards", 0, 3, 0, step=1)
-    away_reds = st.sidebar.number_input("Away Red Cards", 0, 3, 0, step=1)
-    live_state = None
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📡 Live Match Auto-Fetch")
 
-    # Auto-poll toggle
-    auto_poll = st.sidebar.checkbox("🔄 Auto-refresh every 60s", value=False)
-    if auto_poll:
-        st.sidebar.info("Polling API-Football live data...")
-        if st.sidebar.button("Fetch Live State Now"):
-            from data.live_match_poller import get_live_match_state
-            live_state = get_live_match_state()
-            if live_state:
-                def safe_int(val, fallback):
-                    try: return int(val) if val is not None else fallback
-                    except: return fallback
+    fixture_id_input = st.sidebar.number_input(
+        "API-Football Fixture ID",
+        min_value=1, max_value=9999999, value=1035000,
+        help="Find in API-Football fixtures endpoint or URL"
+    )
 
-                elapsed   = safe_int(live_state.get("elapsed"), elapsed)
-                live_hg   = safe_int(live_state.get("home_goals"), live_hg)
-                live_ag   = safe_int(live_state.get("away_goals"), live_ag)
-                home_reds = safe_int(live_state.get("home_reds"), home_reds)
-                away_reds = safe_int(live_state.get("away_reds"), away_reds)
-                st.sidebar.success(f"Live: {live_hg}-{live_ag} @ {elapsed}' (Reds: {home_reds}-{away_reds})")
+    auto_refresh = st.sidebar.toggle("🔄 Auto-refresh (60s)", value=True)
+
+    col_fetch, col_stop = st.sidebar.columns(2)
+    fetch_clicked = col_fetch.button("▶ Start Live", use_container_width=True)
+    stop_clicked  = col_stop.button("⏹ Stop", use_container_width=True)
+
+    # Start poller on button click
+    if fetch_clicked:
+        from data.live_auto_poller import start_auto_poller, get_latest_state
+        start_auto_poller(int(fixture_id_input), interval=60)
+        st.session_state['poller_active'] = True
+        st.session_state['fixture_id']    = int(fixture_id_input)
+
+    # Auto-refresh using Streamlit rerun
+    if auto_refresh and st.session_state.get('poller_active'):
+        import time
+        time.sleep(1)
+        st.rerun()
+
+    # Load current live state
+    from data.live_auto_poller import get_latest_state
+    live_state = get_latest_state()
+
+    if live_state and live_state.get("home_team"):
+        # ── AUTO-POPULATED MATCH HEADER ────────────────────────────────────
+        period_emoji = {
+            "regular":    "⚽",
+            "extra_time": "⏱️",
+            "penalties":  "🎯",
+            "finished":   "✅"
+        }.get(live_state.get("match_period", "regular"), "⚽")
+
+        elapsed   = live_state.get("elapsed", 0)
+        live_hg   = live_state.get("home_goals", 0)
+        live_ag   = live_state.get("away_goals", 0)
+        home_name = live_state.get("home_team", "Home")
+        away_name = live_state.get("away_team", "Away")
+        
+        # Define reds for downstream inference.py compatibility
+        home_reds = live_state.get("home_red", 0)
+        away_reds = live_state.get("away_red", 0)
+
+        st.markdown(f"""
+        <div style="background:#0a0a1a;border:1px solid #e94560;
+                    border-radius:10px;padding:16px;margin-bottom:16px">
+            <div style="display:flex;justify-content:space-between;
+                        align-items:center">
+                <span style="color:#ffffff;font-size:1.3em;font-weight:700">
+                    {home_name}
+                </span>
+                <span style="color:#e94560;font-size:2em;font-weight:900;
+                             letter-spacing:4px">
+                    {live_hg} — {live_ag}
+                </span>
+                <span style="color:#ffffff;font-size:1.3em;font-weight:700">
+                    {away_name}
+                </span>
+            </div>
+            <div style="text-align:center;color:#a8a8b3;margin-top:6px">
+                {period_emoji}
+                {elapsed}' | {live_state.get('match_period','').replace('_',' ').title()}
+                | {live_state.get('home_formation','')} vs
+                  {live_state.get('away_formation','')}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── LIVE STATS GRID ────────────────────────────────────────────────
+        st.markdown("#### 📊 Live Match Stats")
+        s1, s2, s3, s4, s5, s6 = st.columns(6)
+        s1.metric("Shots OT",
+                   f"{live_state['home_shots_ot']}-{live_state['away_shots_ot']}")
+        s2.metric("Corners",
+                   f"{live_state['home_corners']}-{live_state['away_corners']}")
+        s3.metric("Possession",
+                   f"{live_state['home_possession']:.0f}%-"
+                   f"{live_state['away_possession']:.0f}%")
+        s4.metric("Yellow",
+                   f"{live_state['home_yellow']}-{live_state['away_yellow']}")
+        s5.metric("Red",
+                   f"{live_state['home_red']}-{live_state['away_red']}",
+                   delta_color="inverse")
+        s6.metric("Subs Left",
+                   f"{live_state['home_subs_left']}-{live_state['away_subs_left']}")
+
+        # xG row
+        hxg = live_state.get("home_xg_live", "N/A")
+        axg = live_state.get("away_xg_live", "N/A")
+        if hxg != "N/A" and axg != "N/A":
+            x1, x2 = st.columns(2)
+            x1.metric(f"{home_name} live xG", f"{float(hxg):.2f}")
+            x2.metric(f"{away_name} live xG", f"{float(axg):.2f}")
+
+        # ── GOALS TIMELINE ─────────────────────────────────────────────────
+        if live_state.get("goals_timeline"):
+            st.markdown("#### ⚽ Goals")
+            for g in live_state["goals_timeline"]:
+                team_icon = "🏠" if g["team"] == "home" else "✈️"
+                assist_str = f" (assist: {g['assist']})" if g.get("assist") else ""
+                st.write(f"{team_icon} **{g['minute']}'** — {g['player']}{assist_str}")
+
+        # ── CARDS TIMELINE ─────────────────────────────────────────────────
+        if live_state.get("cards_timeline"):
+            with st.expander("🟨 Cards"):
+                for c in live_state["cards_timeline"]:
+                    icon = "🟥" if "Red" in c.get("card_type","") else "🟨"
+                    team_icon = "🏠" if c["team"] == "home" else "✈️"
+                    st.write(f"{icon} {team_icon} **{c['minute']}'** — "
+                             f"{c['player']} ({c['card_type']})")
+
+        # ── SUBSTITUTIONS ──────────────────────────────────────────────────
+        if live_state.get("subs_timeline"):
+            with st.expander("🔄 Substitutions"):
+                for s in live_state["subs_timeline"]:
+                    team_icon = "🏠" if s["team"] == "home" else "✈️"
+                    st.write(f"🔄 {team_icon} **{s['minute']}'** — "
+                             f"🔴 {s['player_out']} → 🟢 {s['player_in']}")
+
+        # ── LINEUPS ────────────────────────────────────────────────────────
+        with st.expander("📋 Starting Lineups"):
+            lc1, lc2 = st.columns(2)
+            with lc1:
+                st.markdown(f"**{home_name}** ({live_state.get('home_formation','')})")
+                for p in live_state.get("home_xi", []):
+                    st.write(f"  {p['number']}. {p['name']} ({p['position']})")
+            with lc2:
+                st.markdown(f"**{away_name}** ({live_state.get('away_formation','')})")
+                for p in live_state.get("away_xi", []):
+                    st.write(f"  {p['number']}. {p['name']} ({p['position']})")
+
+        # ── AUTO-RUN PREDICTION ────────────────────────────────────────────
+        from inference import run_inference
+        from models.match_rules import KNOCKOUT_STAGES
+        
+        stage = st.sidebar.selectbox("Live Match Stage", 
+            ["group", "round_of_32", "round_of_16", "quarter_final", "semi_final", "3rd_place", "final"], 
+            index=0)
+
+        with st.spinner("🔄 Computing live probabilities..."):
+            result = run_inference(
+                home_team=home_name,
+                away_team=away_name,
+                venue_factor=0.3, # Default neutral
+                stage=stage,
+                elapsed_minutes=elapsed,
+                home_goals_live=live_hg,
+                away_goals_live=live_ag,
+                red_cards={"home": home_reds, "away": away_reds},
+                live_state=live_state,
+                match_period=live_state.get("match_period", "regular")
+            )
+
+        # ── LIVE PREDICTION OUTPUT ─────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("### 🎯 Live Prediction")
+
+        if stage in KNOCKOUT_STAGES:
+            pc1, pc2 = st.columns(2)
+            pc1.metric(f"🏠 {home_name} Win", f"{result['home_win_prob']:.1%}")
+            pc2.metric(f"✈️ {away_name} Win", f"{result['away_win_prob']:.1%}")
+
+            if result.get("p_draw_at_90") or result.get("p_tied_at_90"):
+                p_tied = result.get("p_draw_at_90") or result.get("p_tied_at_90", 0)
+                st.caption(
+                    f"P(ET needed): {p_tied:.1%} | "
+                    f"P(Penalties): {result.get('p_penalties', 0):.1%}"
+                )
+        else:
+            pc1, pc2, pc3 = st.columns(3)
+            pc1.metric(f"🏠 {home_name} Win", f"{result['home_win_prob']:.1%}")
+            pc2.metric("🤝 Draw",              f"{result['draw_prob']:.1%}")
+            pc3.metric(f"✈️ {away_name} Win", f"{result['away_win_prob']:.1%}")
+
     else:
-        live_state = None
+        st.info("Enter a Fixture ID and click ▶ Start Live to begin auto-fetching.")
+        elapsed = live_hg = live_ag = home_reds = away_reds = None
 else:
     elapsed = live_hg = live_ag = home_reds = away_reds = None
     live_state = None
