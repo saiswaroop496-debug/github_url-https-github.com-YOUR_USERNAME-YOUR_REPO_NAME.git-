@@ -1,3 +1,5 @@
+# .github/workflows/deploy.yml — COMPLETE FIXED VERSION
+
 name: V7 Validate, Gate & Deploy
 
 on:
@@ -9,63 +11,86 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    # Set outputs with defaults so they are ALWAYS defined
     outputs:
-      passed:   ${{ steps.gate.outputs.passed }}
-      accuracy: ${{ steps.gate.outputs.accuracy }}
-      log_loss: ${{ steps.gate.outputs.log_loss }}
+      passed:   ${{ steps.gate.outputs.passed || 'false' }}
+      accuracy: ${{ steps.gate.outputs.accuracy || '0.0' }}
+      log_loss: ${{ steps.gate.outputs.log_loss || '99.0' }}
+      failure_reason: ${{ steps.gate.outputs.failure_reason || 'pipeline_error' }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 10
+          lfs: true
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Verify training data exists
-        run: |
-          echo "Checking critical data files..."
-          if [ ! -f "data/international_results.csv" ]; then
-            echo "::error::data/international_results.csv is MISSING. Force-add it with: git add -f data/international_results.csv"
-            exit 1
-          fi
-          wc -l data/international_results.csv
-          echo "Training data OK."
+
       - name: Run train_test.py
+        id: train
         env:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
-        run: python train_test.py --auto-deploy=false 2>&1 | tee validation_output.txt
-      - name: Evaluate gates
+        # continue-on-error so gate step always runs even if train crashes
+        continue-on-error: true
+        run: python train_test.py 2>&1 | tee validation_output.txt
+
+      - name: Evaluate accuracy + log-loss gates
         id: gate
+        # Always runs — even if train step failed
         if: always()
         run: |
           python - <<'PYEOF'
           import re, sys, os
+
+          # Check if train step even produced output
           try:
-              with open('validation_output.txt') as f: txt = f.read()
+              with open('validation_output.txt') as f:
+                  txt = f.read()
           except FileNotFoundError:
               txt = ""
+
+          if not txt.strip():
+              # Train step crashed before producing output
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write("passed=false\n")
+                  f.write("accuracy=0.0\n")
+                  f.write("log_loss=99.0\n")
+                  f.write("failure_reason=pipeline_crash_no_output\n")
+              print("❌ GATE FAILED: train_test.py produced no output (crashed)")
+              sys.exit(0)   # Don't fail the step — let rollback job handle it
+
           acc_m = re.search(r'[Aa]ccuracy[:\s]+(\d+\.?\d*)%', txt)
           ll_m  = re.search(r'[Ll]og.?[Ll]oss[:\s]+([\d.]+)', txt)
+
           acc = float(acc_m.group(1)) if acc_m else 0.0
           ll  = float(ll_m.group(1))  if ll_m  else 99.0
+
           ACC_GATE = 43.0
           LL_GATE  = 1.10
-          passed = (acc >= ACC_GATE and ll <= LL_GATE)
+          passed   = acc >= ACC_GATE and ll <= LL_GATE
+          reason   = "gates_passed" if passed else f"acc={acc:.1f}%<{ACC_GATE}%_or_ll={ll:.4f}>{LL_GATE}"
+
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"accuracy={acc:.2f}\n")
               f.write(f"log_loss={ll:.4f}\n")
               f.write(f"passed={'true' if passed else 'false'}\n")
-          print(f"Gate result: accuracy={acc:.2f}%, log_loss={ll:.4f}, passed={passed}")
-          if not passed:
-              print(f"::warning::Quality gate FAILED — Accuracy: {acc:.2f}% (need ≥{ACC_GATE}%), Log-Loss: {ll:.4f} (need ≤{LL_GATE})")
-              sys.exit(1)
+              f.write(f"failure_reason={reason}\n")
+
+          print(f"Accuracy: {acc:.2f}% | Log-Loss: {ll:.4f}")
+          print(f"Result: {'✅ PASS' if passed else '❌ FAIL'}")
           PYEOF
+
       - name: Upload validation report
         if: always()
         uses: actions/upload-artifact@v4
@@ -73,34 +98,65 @@ jobs:
           name: validation-${{ github.run_number }}
           path: validation_output.txt
           retention-days: 30
+
   rollback:
     needs: validate
-    if: always() && needs.validate.result == 'failure'
+    # FIXED: triggers whenever validate job fails OR passed output is 'false'
+    # Uses always() so it runs even if validate job itself crashed
+    if: |
+      always() && (
+        needs.validate.result == 'failure' ||
+        needs.validate.outputs.passed == 'false'
+      )
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 10
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Rollback main
+
+      - name: Revert to last good commit
         run: |
+          echo "🔄 Rolling back — reason: ${{ needs.validate.outputs.failure_reason }}"
+          
+          # Find last commit that passed CI (has [auto] prefix = was deployed)
+          LAST_GOOD=$(git log --oneline -20 | grep '\[auto\]' | head -1 | cut -d' ' -f1)
+          
+          if [ -z "$LAST_GOOD" ]; then
+            echo "No previous auto-deploy found. Reverting HEAD."
+            LAST_GOOD="HEAD~1"
+          fi
+          
+          echo "Reverting to: $LAST_GOOD"
           git config user.name "CI Rollback Bot"
-          git config user.email "ci@worldcup-engine"
-          git revert HEAD --no-edit || echo "Revert failed, may need manual intervention"
-          git push origin main || echo "Push failed, check permissions"
-      - name: Notify Telegram
+          git config user.email "ci-bot@worldcup-engine"
+          git revert HEAD --no-edit 2>/dev/null || git checkout $LAST_GOOD -- .
+          git add -A
+          git commit -m "[rollback] Reverted due to: ${{ needs.validate.outputs.failure_reason }}"
+          git push origin main
+
+      - name: Telegram failure alert
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         run: |
-          ACC="${{ needs.validate.outputs.accuracy }}"
-          LL="${{ needs.validate.outputs.log_loss }}"
-          MSG="🔴 *V7 CI FAILURE*%0AAccuracy: ${ACC:-N/A}%25 (gate: 43.0%25)%0ALog-Loss: ${LL:-N/A} (gate: 1.10)%0AAuto-rollback executed. Last good model restored."
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHANNEL_ID}" -d "text=${MSG}" -d "parse_mode=Markdown" || echo "Telegram notify failed"
+          MSG="⚠️ V7 CI FAILED%0A"
+          MSG+="Accuracy: ${{ needs.validate.outputs.accuracy }}%25%0A"
+          MSG+="Log-Loss: ${{ needs.validate.outputs.log_loss }}%0A"
+          MSG+="Reason: ${{ needs.validate.outputs.failure_reason }}%0A"
+          MSG+="Auto-rollback executed."
+          curl -s -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHANNEL_ID}" \
+            -d "text=${MSG}" \
+            -d "parse_mode=Markdown" || true
+
   deploy:
     needs: validate
     if: needs.validate.outputs.passed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Confirm deployment
-        run: echo "✅ Streamlit Cloud redeploys automatically on push to main."
+        run: |
+          echo "✅ Deploying: Accuracy=${{ needs.validate.outputs.accuracy }}% LL=${{ needs.validate.outputs.log_loss }}"
