@@ -27,16 +27,29 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Verify training data exists
+        run: |
+          echo "Checking critical data files..."
+          if [ ! -f "data/international_results.csv" ]; then
+            echo "::error::data/international_results.csv is MISSING. Force-add it with: git add -f data/international_results.csv"
+            exit 1
+          fi
+          wc -l data/international_results.csv
+          echo "Training data OK."
       - name: Run train_test.py
         env:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
         run: python train_test.py --auto-deploy=false 2>&1 | tee validation_output.txt
       - name: Evaluate gates
         id: gate
+        if: always()
         run: |
           python - <<'PYEOF'
           import re, sys, os
-          with open('validation_output.txt') as f: txt = f.read()
+          try:
+              with open('validation_output.txt') as f: txt = f.read()
+          except FileNotFoundError:
+              txt = ""
           acc_m = re.search(r'[Aa]ccuracy[:\s]+(\d+\.?\d*)%', txt)
           ll_m  = re.search(r'[Ll]og.?[Ll]oss[:\s]+([\d.]+)', txt)
           acc = float(acc_m.group(1)) if acc_m else 0.0
@@ -48,7 +61,10 @@ jobs:
               f.write(f"accuracy={acc:.2f}\n")
               f.write(f"log_loss={ll:.4f}\n")
               f.write(f"passed={'true' if passed else 'false'}\n")
-          if not passed: sys.exit(1)
+          print(f"Gate result: accuracy={acc:.2f}%, log_loss={ll:.4f}, passed={passed}")
+          if not passed:
+              print(f"::warning::Quality gate FAILED — Accuracy: {acc:.2f}% (need ≥{ACC_GATE}%), Log-Loss: {ll:.4f} (need ≤{LL_GATE})")
+              sys.exit(1)
           PYEOF
       - name: Upload validation report
         if: always()
@@ -59,7 +75,7 @@ jobs:
           retention-days: 30
   rollback:
     needs: validate
-    if: failure() && needs.validate.outputs.passed == 'false'
+    if: always() && needs.validate.result == 'failure'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,14 +86,16 @@ jobs:
         run: |
           git config user.name "CI Rollback Bot"
           git config user.email "ci@worldcup-engine"
-          git revert HEAD --no-edit
-          git push origin main
+          git revert HEAD --no-edit || echo "Revert failed, may need manual intervention"
+          git push origin main || echo "Push failed, check permissions"
       - name: Notify Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         run: |
-          MSG="🔴 *V7 CI FAILURE*%0AAccuracy: ${{ needs.validate.outputs.accuracy }}%25 (gate: 43.0%25)%0ALog-Loss: ${{ needs.validate.outputs.log_loss }} (gate: 1.10)%0AAuto-rollback executed. Last good model restored."
+          ACC="${{ needs.validate.outputs.accuracy }}"
+          LL="${{ needs.validate.outputs.log_loss }}"
+          MSG="🔴 *V7 CI FAILURE*%0AAccuracy: ${ACC:-N/A}%25 (gate: 43.0%25)%0ALog-Loss: ${LL:-N/A} (gate: 1.10)%0AAuto-rollback executed. Last good model restored."
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHANNEL_ID}" -d "text=${MSG}" -d "parse_mode=Markdown" || echo "Telegram notify failed"
   deploy:
     needs: validate

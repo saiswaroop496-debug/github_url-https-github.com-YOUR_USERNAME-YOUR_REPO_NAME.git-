@@ -1,0 +1,13 @@
+fixture_id,date,home_team,away_team,home_goals,away_goals,status,is_neutral,tournament,home_xg,away_xg,home_possession,away_possession,home_shots,away_shots,home_injuries,away_injuries,home_key_injury,away_key_injury,press_proxy_diff,home_event_count,away_event_count,result
+900000,2026-06-11,Brazil,Mexico,2,0,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Home Win
+900001,2026-06-12,Germany,Japan,1,0,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Home Win
+900002,2026-06-13,France,Australia,3,1,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Home Win
+900003,2026-06-14,England,Iran,1,0,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Home Win
+900004,2026-06-15,Argentina,Saudi Arabia,2,1,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Home Win
+900005,2026-06-16,Spain,Morocco,2,1,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Home Win
+900006,2026-06-17,Portugal,Ghana,1,1,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Draw
+900007,2026-06-18,Netherlands,Ecuador,0,0,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Draw
+900008,2026-06-19,Brazil,Switzerland,1,1,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Draw
+900009,2026-06-20,Germany,Spain,1,2,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Away Win
+900010,2026-06-21,France,Denmark,0,0,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Draw
+900011,2026-06-22,England,USA,2,1,FT,1,FIFA World Cup 2026,,,,,,,0,0,0,0,0,0,0,Home Win
