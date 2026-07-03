@@ -302,100 +302,92 @@ def add_movement_features(df: pd.DataFrame,
 
 def add_institutional_signals(df):
     df = df.sort_values('date').reset_index(drop=True)
+    df['date_dt'] = pd.to_datetime(df['date'])
+
+    def get_past_matches(team, current_idx, n=None, days=None, current_date=None):
+        mask = ((df['home_team'] == team) | (df['away_team'] == team)) & (df.index < current_idx)
+        past = df[mask]
+        if days is not None and current_date is not None:
+            past = past[past['date_dt'] >= (current_date - pd.Timedelta(days=days))]
+        if n is not None:
+            past = past.tail(n)
+        return past
+
+    def get_team_goals(past, team):
+        home_mask = past['home_team'] == team
+        goals = np.where(home_mask, past['home_goals'], past['away_goals'])
+        conc = np.where(home_mask, past['away_goals'], past['home_goals'])
+        return goals, conc
 
     for side in ['home', 'away']:
-        team_col    = f'{side}_team'
-        goals_col   = f'{side}_goals'
-        conc_col    = 'away_goals' if side == 'home' else 'home_goals'
-
+        team_col = f'{side}_team'
+        
         momentum = []
+        velocity = []
+        conv_rates = []
+        def_index = []
+        
         for idx, row in df.iterrows():
             team = row[team_col]
-            past = df[(df[team_col] == team) & (df.index < idx)].tail(2)
-            if len(past) < 2:
+            current_date = row['date_dt']
+            
+            # Momentum (net goals in last 2 matches)
+            past2 = get_past_matches(team, idx, n=2)
+            if len(past2) < 2:
                 momentum.append(0.0)
             else:
-                net_goals = (past[goals_col] - past[conc_col]).sum()
-                momentum.append(float(net_goals))
-
-        df[f'{side}_tournament_momentum'] = momentum
-
-    df['tournament_momentum_diff'] = (df['home_tournament_momentum'] - df['away_tournament_momentum'])
-
-    for side in ['home', 'away']:
-        team_col  = f'{side}_team'
-        glicko_col = f'{side}_glicko'
-
-        velocity = []
-        for idx, row in df.iterrows():
-            team = row[team_col]
-            past_30d = df[
-                (df[team_col] == team) &
-                (df.index < idx) &
-                (pd.to_datetime(df['date']) >= pd.to_datetime(row['date']) - pd.Timedelta(days=30))
-            ]
+                goals, conc = get_team_goals(past2, team)
+                momentum.append(float(np.sum(goals) - np.sum(conc)))
+                
+            # Velocity (30 day Glicko change)
+            glicko_col = f'{side}_glicko'
+            past_30d = get_past_matches(team, idx, days=30, current_date=current_date)
             if len(past_30d) < 2:
                 velocity.append(0.0)
             else:
-                delta = float(row[glicko_col]) - float(past_30d.iloc[0][glicko_col])
+                # Need to find the glicko of this team in the past match
+                past_match = past_30d.iloc[0]
+                past_glicko = past_match['home_glicko'] if past_match['home_team'] == team else past_match['away_glicko']
+                delta = float(row.get(glicko_col, 1500.0)) - float(past_glicko)
                 velocity.append(delta / 30.0)
-
-        df[f'{side}_glicko_velocity'] = velocity
-
-    df['glicko_velocity_diff'] = (df['home_glicko_velocity'] - df['away_glicko_velocity'])
-
-    for side in ['home', 'away']:
-        xg_col    = f'{side}_xg_rolling_3'
-        goals_col = f'{side}_goals'
-
-        conv_rates = []
-        for idx, row in df.iterrows():
-            team = row[f'{side}_team']
-            past = df[(df[f'{side}_team'] == team) & (df.index < idx)].tail(3)
-            if len(past) < 2:
+                
+            # Conversion rate (actual goals / xG in last 3)
+            past3 = get_past_matches(team, idx, n=3)
+            if len(past3) < 2:
                 conv_rates.append(1.0)
-            else:
-                actual_goals = past[goals_col].sum()
-                total_xg     = past.get(xg_col, pd.Series([1.2]*3)).sum()
-                rate = actual_goals / max(total_xg, 0.5)
-                conv_rates.append(float(np.clip(rate, 0.3, 2.5)))
-
-        df[f'{side}_xg_conversion'] = conv_rates
-
-    df['conversion_diff'] = (df['home_xg_conversion'] - df['away_xg_conversion'])
-
-    for side in ['home', 'away']:
-        opp_side  = 'away' if side == 'home' else 'home'
-        shots_col = f'{opp_side}_shots'
-        xg_col    = f'{opp_side}_xg'
-
-        def_index = []
-        for idx, row in df.iterrows():
-            team = row[f'{side}_team']
-            past = df[(df[f'{side}_team'] == team) & (df.index < idx)].tail(3)
-            if len(past) < 2:
                 def_index.append(1.0)
             else:
-                shots = past.get(shots_col, pd.Series([10.0]*3)).sum()
-                xg    = past.get(xg_col, pd.Series([1.2]*3)).sum()
-                idx_val = shots / max(xg * 10, 1.0)
+                goals, conc = get_team_goals(past3, team)
+                
+                home_mask = past3['home_team'] == team
+                # xG
+                xg = np.where(home_mask, past3.get('home_xg', pd.Series([1.2]*len(past3))), 
+                                         past3.get('away_xg', pd.Series([1.2]*len(past3))))
+                # Conceded shots / xG
+                opp_shots = np.where(home_mask, past3.get('away_shots', pd.Series([10.0]*len(past3))), 
+                                                past3.get('home_shots', pd.Series([10.0]*len(past3))))
+                opp_xg = np.where(home_mask, past3.get('away_xg', pd.Series([1.2]*len(past3))), 
+                                             past3.get('home_xg', pd.Series([1.2]*len(past3))))
+                
+                rate = np.sum(goals) / max(np.sum(xg), 0.5)
+                conv_rates.append(float(np.clip(rate, 0.3, 2.5)))
+                
+                idx_val = np.sum(opp_shots) / max(np.sum(opp_xg) * 10, 1.0)
                 def_index.append(float(np.clip(idx_val, 0.3, 3.0)))
-
+                
+        df[f'{side}_tournament_momentum'] = momentum
+        df[f'{side}_glicko_velocity'] = velocity
+        df[f'{side}_xg_conversion'] = conv_rates
         df[f'{side}_defensive_shape'] = def_index
-
-    df['defensive_shape_diff'] = (df['home_defensive_shape'] - df['away_defensive_shape'])
-
-    for side in ['home', 'away']:
+        
         squad_col = f'{side}_sas'
-        if squad_col in df.columns:
-            df[f'{side}_lineup_continuity'] = df[squad_col].fillna(1.0)
-        else:
-            df[f'{side}_lineup_continuity'] = 1.0
+        df[f'{side}_lineup_continuity'] = df[squad_col].fillna(1.0) if squad_col in df.columns else 1.0
 
-    df['lineup_continuity_diff'] = (df['home_lineup_continuity'] - df['away_lineup_continuity'])
+    df['tournament_momentum_diff'] = df['home_tournament_momentum'] - df['away_tournament_momentum']
+    df['glicko_velocity_diff'] = df['home_glicko_velocity'] - df['away_glicko_velocity']
+    df['conversion_diff'] = df['home_xg_conversion'] - df['away_xg_conversion']
+    df['defensive_shape_diff'] = df['home_defensive_shape'] - df['away_defensive_shape']
+    df['lineup_continuity_diff'] = df['home_lineup_continuity'] - df['away_lineup_continuity']
 
-    new_cols = ['tournament_momentum_diff', 'glicko_velocity_diff', 'conversion_diff', 'defensive_shape_diff', 'lineup_continuity_diff']
-    for col in new_cols:
-        df[col] = df.groupby('home_team')[col].shift(1).fillna(0.0)
-
+    df.drop(columns=['date_dt'], inplace=True)
     return df
