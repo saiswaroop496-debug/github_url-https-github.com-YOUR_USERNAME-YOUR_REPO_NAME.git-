@@ -207,11 +207,12 @@ def main():
     glicko = Glicko2RatingSystem()
     df = glicko.compute_ratings(df)
 
-    print("[FEATURES]  Computing V6 specific features â€¦")
-    from features.rolling_features import compute_v6_features, add_injury_features, add_movement_features
+    print("[FEATURES]  Computing V6 & Institutional features ...")
+    from features.rolling_features import compute_v6_features, add_injury_features, add_movement_features, add_institutional_signals
     df = compute_v6_features(df)
     df = add_injury_features(df)
     df = add_movement_features(df)
+    df = add_institutional_signals(df)
 
     df = compute_alpha_target(df)
     df = compute_h2h_draw_rate(df)
@@ -270,6 +271,9 @@ def main():
         'home_regime_coef', 'away_regime_coef', 'regime_factor_diff',
         # Factor model diffs
         'factor_momentum_diff', 'factor_quality_diff', 'factor_volatility_diff',
+        # Institutional signals
+        'tournament_momentum_diff', 'glicko_velocity_diff', 'conversion_diff',
+        'defensive_shape_diff', 'lineup_continuity_diff',
         # Existing features
         'xg_supremacy', 'draw_affinity', 'home_neutral_venue_form',
         'away_neutral_venue_form', 'rest_differential', 'stage_pressure',
