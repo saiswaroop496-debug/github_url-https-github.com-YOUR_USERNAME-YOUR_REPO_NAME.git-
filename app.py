@@ -160,11 +160,7 @@ if live_mode:
         st.session_state['poller_active'] = False
         st.rerun()
 
-    # Auto-refresh using Streamlit rerun
-    if auto_refresh and st.session_state.get('poller_active'):
-        import time
-        time.sleep(10) # 10 seconds is better than 1 second to avoid spamming UI refresh too fast
-        st.rerun()
+    # (Auto-refresh logic moved to the bottom of the script)
 
     # Load current live state
     from data.live_auto_poller import get_latest_state
@@ -579,3 +575,9 @@ if live_mode and is_syndicate:
         height=320, template="plotly_dark"
     )
     st.plotly_chart(fig, use_container_width=True)
+
+# ─── AUTO-REFRESH (Must be at the very end of the script) ─────────────────────
+if live_mode and locals().get('auto_refresh', False) and st.session_state.get('poller_active'):
+    import time
+    time.sleep(10)
+    st.rerun()
