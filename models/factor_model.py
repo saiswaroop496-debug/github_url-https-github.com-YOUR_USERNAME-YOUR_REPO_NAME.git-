@@ -31,9 +31,11 @@ def compute_team_factors(df: pd.DataFrame, team: str,
     xg_series = []
     for _, row in team_matches.tail(5).iterrows():
         if row['home_team'] == team:
-            xg_series.append(float(row.get('home_xg', 1.2) or 1.2))
+            val = row.get('home_xg', 1.2)
+            xg_series.append(float(val) if not np.isnan(float(val)) else 1.2)
         else:
-            xg_series.append(float(row.get('away_xg', 1.0) or 1.0))
+            val = row.get('away_xg', 1.0)
+            xg_series.append(float(val) if not np.isnan(float(val)) else 1.0)
     momentum = float(np.polyfit(range(len(xg_series)), xg_series, 1)[0]) if len(xg_series) > 1 else 0.0
 
     # Factor 2: Quality - Glicko rating normalised to z-score

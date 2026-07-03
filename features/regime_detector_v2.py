@@ -21,9 +21,11 @@ def detect_team_regime(team: str, df, lookback: int = 8) -> dict:
     xg_for = []
     for _, row in team_matches.iterrows():
         if row['home_team'] == team:
-            xg_for.append(float(row.get('home_xg', 1.2) or 1.2))
+            val = row.get('home_xg', 1.2)
+            xg_for.append(float(val) if not np.isnan(float(val)) else 1.2)
         else:
-            xg_for.append(float(row.get('away_xg', 1.0) or 1.0))
+            val = row.get('away_xg', 1.0)
+            xg_for.append(float(val) if not np.isnan(float(val)) else 1.0)
 
     xg_arr = np.array(xg_for)
 

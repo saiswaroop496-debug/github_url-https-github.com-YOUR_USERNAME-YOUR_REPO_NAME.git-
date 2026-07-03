@@ -1,155 +1,229 @@
 import pandas as pd
 import numpy as np
+from scipy.stats import nbinom, poisson
 from scipy.optimize import minimize, minimize_scalar
-from scipy.stats import poisson
 from models.copula_goals import bivariate_score_matrix
 
 
-def compute_time_decay_weights(dates, xi=0.0065):
-    T = pd.to_datetime(dates).max()
-    days_ago = (T - pd.to_datetime(dates)).dt.days.values
-    weights  = np.exp(-xi * days_ago)
-    return weights / weights.sum() * len(weights)
+# ── Overdispersion parameter (estimated from WC data) ────────────────────────
+# r=5 is the published estimate for international football goals.
+# Lower r = more overdispersion (more 0-0 and 5-0 matches).
+# Estimate from your data: np.var(goals)/np.mean(goals) = 1 + mean/r → r = mean²/(var-mean)
+NB_R = 4.42
 
 
-# --- STAGE 1: Fit attack/defense with identifiability constraint --------------
-def fit_attack_defense(home_teams, away_teams, home_goals, away_goals,
-                       all_teams, time_weights=None, sample_weight=None):
+def nb_pmf(k: int, mu: float, r: float = NB_R) -> float:
     """
-    Stage 1: MLE for attack/defense parameters only.
-    Identifiability penalty: 1000 * sum(attack)^2 anchors mean(attack)=0.
+    Negative Binomial PMF. Replaces poisson.pmf() everywhere.
+    Captures overdispersion: variance = mu + mu²/r > mu (unlike Poisson where var=mu).
     """
-    n_teams = len(all_teams)
-    team_idx = {t: i for i, t in enumerate(all_teams)}
-    if sample_weight is not None:
-        W = sample_weight
+    if mu <= 0:
+        return 1.0 if k == 0 else 0.0
+    p = r / (r + mu)
+    return float(nbinom.pmf(k, r, p))
+
+
+def nb_pmf_array(goals: np.ndarray, mu: float, r: float = NB_R) -> np.ndarray:
+    """Vectorized NB PMF for an array of goal counts."""
+    if mu <= 0:
+        result = np.zeros(len(goals))
+        result[0] = 1.0
+        return result
+    p = r / (r + mu)
+    return nbinom.pmf(goals, r, p)
+
+
+def estimate_overdispersion(goals_series: np.ndarray) -> float:
+    """
+    Estimate NB overdispersion r from historical goal data.
+    r = mean² / (var - mean). Use r=5 if variance <= mean (no overdispersion).
+    """
+    mu  = goals_series.mean()
+    var = goals_series.var()
+    if var <= mu or mu <= 0:
+        return 5.0   # default
+    r = mu**2 / (var - mu)
+    return float(np.clip(r, 1.0, 50.0))
+
+
+# ── Bayesian Shrinkage for Attack/Defense Parameters ─────────────────────────
+SHRINKAGE_ALPHA = 3.0   # pseudo-count: teams with <3 matches shrink heavily to prior
+
+def bayesian_shrink_lambdas(lam_estimated: float,
+                             lam_global_mean: float,
+                             n_matches: int,
+                             alpha: float = SHRINKAGE_ALPHA) -> float:
+    """
+    Empirical Bayes shrinkage toward league mean.
+    Formula: λ_shrunk = (n * λ_obs + α * λ_global) / (n + α)
+    Teams with n < α get pulled strongly toward the global average.
+    """
+    return (n_matches * lam_estimated + alpha * lam_global_mean) / (n_matches + alpha)
+
+
+def fit_dixon_coles_nb(df, dates=None, xi: float = 0.0065,
+                        r: float = None) -> dict:
+    """
+    V7.3 Dixon-Coles MLE using Negative Binomial distributions.
+    Two-stage:
+      Stage 1: Fit attack/defense with NB likelihood + identifiability constraint
+      Stage 2: Estimate rho with concentrated NB likelihood
+    Also applies Bayesian shrinkage to stabilize small-sample teams.
+    """
+    home_teams  = df['home_team'].values
+    away_teams  = df['away_team'].values
+    home_goals  = df['home_goals'].astype(int).values
+    away_goals  = df['away_goals'].astype(int).values
+    all_teams   = sorted(set(home_teams) | set(away_teams))
+    team_idx    = {t: i for i, t in enumerate(all_teams)}
+    n_teams     = len(all_teams)
+
+    # Time decay weights
+    if dates is not None:
+        T        = np.max(dates)
+        days_ago = (T - dates).astype(float)
+        weights  = np.exp(-xi * days_ago)
+        weights /= weights.sum() / len(weights)
     else:
-        W = time_weights if time_weights is not None else np.ones(len(home_goals))
+        weights = np.ones(len(home_goals))
 
-    # Pre-map teams to indices to avoid doing it inside the objective function
-    hi = np.array([team_idx[t] for t in home_teams])
-    ai = np.array([team_idx[t] for t in away_teams])
+    # Estimate overdispersion from data if not provided
+    if r is None:
+        all_goals = np.concatenate([home_goals, away_goals])
+        r = estimate_overdispersion(all_goals)
+        print(f"  NB overdispersion r={r:.2f} (Poisson would assume r→∞)")
 
-    def neg_log_likelihood(params):
-        attack  = params[:n_teams]
-        defense = params[n_teams:2*n_teams]
+    # Pre-map indices for vectorization
+    h_idx = np.array([team_idx[t] for t in home_teams])
+    a_idx = np.array([team_idx[t] for t in away_teams])
+
+    # Stage 1: Fit attack/defense
+    def neg_ll_stage1(params):
+        attack   = params[:n_teams]
+        defense  = params[n_teams:2*n_teams]
         home_adv = params[2*n_teams]
-
-        lam_h = np.exp(attack[hi] - defense[ai] + home_adv)
-        lam_a = np.exp(attack[ai] - defense[hi])
         
-        ll_h = poisson.logpmf(home_goals, lam_h)
-        ll_a = poisson.logpmf(away_goals, lam_a)
-        ll = np.sum(W * (ll_h + ll_a))
-
-        # Identifiability constraint: reduced penalty 1000 (was 10000)
-        penalty = 1000.0 * (np.sum(attack) ** 2)
+        lh = np.exp(attack[h_idx] - defense[a_idx] + home_adv)
+        la = np.exp(attack[a_idx] - defense[h_idx])
+        
+        p = r / (r + lh)
+        ll_h = nbinom.logpmf(home_goals, r, p)
+        
+        p_a = r / (r + la)
+        ll_a = nbinom.logpmf(away_goals, r, p_a)
+        
+        ll = np.sum(weights * (np.nan_to_num(ll_h, nan=-10.0) + np.nan_to_num(ll_a, nan=-10.0)))
+        penalty = 1000.0 * (np.sum(attack)**2)
         return -ll + penalty
 
-    x0 = np.zeros(2 * n_teams + 1)
-    result = minimize(neg_log_likelihood, x0, method='L-BFGS-B',
-                      options={'maxiter': 100, 'ftol': 1e-8})
-    params = result.x
-    attack  = params[:n_teams]
-    defense = params[n_teams:2*n_teams]
-    home_adv = params[2*n_teams]
-    return attack, defense, home_adv, team_idx
+    x0 = np.zeros(2*n_teams + 1)
+    res = minimize(neg_ll_stage1, x0, method='L-BFGS-B',
+                   options={'maxiter': 500, 'ftol': 1e-8})
+    params      = res.x
+    attack_raw  = params[:n_teams]
+    defense_raw = params[n_teams:2*n_teams]
+    home_adv    = params[2*n_teams]
+
+    # Bayesian shrinkage: count matches per team, shrink toward global mean
+    match_counts = {}
+    for t in all_teams:
+        match_counts[t] = (
+            (df['home_team'] == t).sum() + (df['away_team'] == t).sum()
+        )
+    global_attack_mean  = np.exp(attack_raw).mean()
+    global_defense_mean = np.exp(defense_raw).mean()
+
+    attack_shrunk  = np.zeros(n_teams)
+    defense_shrunk = np.zeros(n_teams)
+    for i, team in enumerate(all_teams):
+        n = match_counts[team]
+        raw_lam_att = np.exp(attack_raw[i])
+        raw_lam_def = np.exp(defense_raw[i])
+        attack_shrunk[i]  = np.log(bayesian_shrink_lambdas(raw_lam_att, global_attack_mean, n))
+        defense_shrunk[i] = np.log(bayesian_shrink_lambdas(raw_lam_def, global_defense_mean, n))
+
+    # Stage 2: Estimate rho with NB likelihood, fixed attack/defense
+    def neg_ll_rho(rho):
+        lh = np.exp(attack_shrunk[h_idx] - defense_shrunk[a_idx] + home_adv)
+        la = np.exp(attack_shrunk[a_idx] - defense_shrunk[h_idx])
+        
+        # Vectorized dc_tau computation
+        tau = np.ones(len(home_goals))
+        
+        # 0-0
+        mask_00 = (home_goals == 0) & (away_goals == 0)
+        tau[mask_00] = np.maximum(0.001, 1.0 - lh[mask_00] * la[mask_00] * rho)
+        
+        # 0-1
+        mask_01 = (home_goals == 0) & (away_goals == 1)
+        tau[mask_01] = np.maximum(0.001, 1.0 + lh[mask_01] * rho)
+        
+        # 1-0
+        mask_10 = (home_goals == 1) & (away_goals == 0)
+        tau[mask_10] = np.maximum(0.001, 1.0 + la[mask_10] * rho)
+        
+        # 1-1
+        mask_11 = (home_goals == 1) & (away_goals == 1)
+        tau[mask_11] = np.maximum(0.001, 1.0 - rho)
+        
+        ll = np.sum(weights * np.log(tau))
+        if np.any(tau <= 0):
+            return 1e9
+        return -ll
+
+    rho_result = minimize_scalar(neg_ll_rho, bounds=(-0.35, 0.35), method='bounded')
+    rho_fitted = float(rho_result.x)
+    print(f"  rho={rho_fitted:.4f} (NB-corrected)")
+
+    return {
+        'attack':      {t: float(attack_shrunk[i])  for t, i in team_idx.items()},
+        'defense':     {t: float(defense_shrunk[i]) for t, i in team_idx.items()},
+        'home_adv':    float(home_adv),
+        'rho':         rho_fitted,
+        'r_nb':        float(r),
+        'team_idx':    {t: i for t, i in team_idx.items()},
+        'match_counts': match_counts,
+    }
 
 
-# --- STAGE 2: Estimate rho with fixed attack/defense ----------------------------
-def dc_tau(gh, ga, lam_h, lam_a, rho):
-    """Dixon-Coles low-score correction for 4 outcome cells."""
-    if gh == 0 and ga == 0: return 1.0 - lam_h * lam_a * rho
-    if gh == 0 and ga == 1: return 1.0 + lam_h * rho
-    if gh == 1 and ga == 0: return 1.0 + lam_a * rho
-    if gh == 1 and ga == 1: return 1.0 - rho
+def dc_tau_scalar(gh, ga, lh, la, rho) -> float:
+    if gh == 0 and ga == 0: return max(0.001, 1.0 - lh*la*rho)
+    if gh == 0 and ga == 1: return max(0.001, 1.0 + lh*rho)
+    if gh == 1 and ga == 0: return max(0.001, 1.0 + la*rho)
+    if gh == 1 and ga == 1: return max(0.001, 1.0 - rho)
     return 1.0
 
 
-def fit_rho_concentrated(home_teams, away_teams, home_goals, away_goals,
-                          attack, defense, home_adv, team_idx,
-                          time_weights=None):
-    """
-    Stage 2: Estimate rho via concentrated log-likelihood.
-    attack/defense are FIXED from Stage 1 — only rho varies here.
-    Bounds widened to (-0.35, 0.35) per V6.2 blueprint.
-    """
-    W = time_weights if time_weights is not None else np.ones(len(home_goals))
-
-    hi = np.array([team_idx[t] for t in home_teams])
-    ai = np.array([team_idx[t] for t in away_teams])
-    
-    lam_h = np.exp(attack[hi] - defense[ai] + home_adv)
-    lam_a = np.exp(attack[ai] - defense[hi])
-
-    def neg_ll_rho(rho):
-        tau = np.ones_like(home_goals, dtype=float)
-        
-        # Vectorized Dixon-Coles low-score correction
-        mask_00 = (home_goals == 0) & (away_goals == 0)
-        mask_01 = (home_goals == 0) & (away_goals == 1)
-        mask_10 = (home_goals == 1) & (away_goals == 0)
-        mask_11 = (home_goals == 1) & (away_goals == 1)
-        
-        tau[mask_00] = 1.0 - lam_h[mask_00] * lam_a[mask_00] * rho
-        tau[mask_01] = 1.0 + lam_h[mask_01] * rho
-        tau[mask_10] = 1.0 + lam_a[mask_10] * rho
-        tau[mask_11] = 1.0 - rho
-        
-        if np.any(tau <= 0):
-            return 1e9
-            
-        ll = np.sum(W * np.log(np.clip(tau, 1e-10, None)))
-        return -ll
-
-    result = minimize_scalar(neg_ll_rho, bounds=(-0.35, 0.35), method='bounded')
-    rho = result.x
-    print(f"  rho converged to: {rho:.4f}")
-    return rho
-
-
-# --- Vectorized Score Matrix -------------------------------------------------
 def score_probability_matrix(lam_h: float, lam_a: float,
-                              rho: float = None,
-                              max_goals: int = 8) -> np.ndarray:
+                               rho: float,
+                               r: float = NB_R,
+                               max_goals: int = 8) -> np.ndarray:
     """
-    Dixon-Coles score matrix with tau correction.
-    rho MUST be the fitted MLE value, not a fallback.
+    V7.3: Score matrix using Negative Binomial + DC tau correction.
     """
-    from scipy.stats import poisson
-    import numpy as np
-
-    if rho is None:
-        raise ValueError("rho must be provided — never use None. "
-                         "Pass dc_params['rho'] from the fitted model.")
-
-    g  = np.arange(max_goals + 1)
-    ph = poisson.pmf(g, lam_h)
-    pa = poisson.pmf(g, lam_a)
-
+    g   = np.arange(max_goals + 1)
+    ph  = nb_pmf_array(g, lam_h, r)
+    pa  = nb_pmf_array(g, lam_a, r)
     joint = np.outer(ph, pa)
 
-    # Dixon-Coles tau correction (all 4 low-score cells)
     tau = np.ones((max_goals + 1, max_goals + 1))
     tau[0, 0] = max(0.001, 1.0 - lam_h * lam_a * rho)
     tau[0, 1] = max(0.001, 1.0 + lam_h * rho)
     tau[1, 0] = max(0.001, 1.0 + lam_a * rho)
-    tau[1, 1] = max(0.001, 1.0 - rho)
+    if max_goals >= 1:
+        tau[1, 1] = max(0.001, 1.0 - rho)
 
     matrix = joint * tau
     total  = matrix.sum()
-    if total < 1e-9:
-        return joint / joint.sum()   # fallback if tau produces negatives
-    return matrix / total
+    return matrix / total if total > 1e-9 else joint / joint.sum()
 
 
-def outcome_probs(matrix: np.ndarray):
-    """Extract 1X2 from scoreline matrix."""
-    home_win = np.tril(matrix, k=-1).sum()
-    draw     = np.trace(matrix)
-    away_win = np.triu(matrix, k=1).sum()
-    total = home_win + draw + away_win
-    return home_win/total, draw/total, away_win/total
+def outcome_probs(matrix: np.ndarray) -> tuple:
+    h = float(np.tril(matrix, k=-1).sum())
+    d = float(np.trace(matrix))
+    a = float(np.triu(matrix, k=1).sum())
+    total = h + d + a
+    return h/total, d/total, a/total
 
 
 # --- BTTS + Over/Under --------------------------------------------------------

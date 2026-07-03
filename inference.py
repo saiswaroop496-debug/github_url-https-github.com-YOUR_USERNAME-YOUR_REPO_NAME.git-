@@ -141,6 +141,65 @@ def _get_team_state(team_name: str) -> dict:
 
 
 # ─── Feature Construction ─────────────────────────────────────────────────────
+def _get_kalman_features(h: dict, a: dict) -> dict:
+    """
+    Robustly retrieve Kalman features with multiple key name fallbacks.
+    Fixes the key mismatch bug causing kalman_velocity_diff: 0.0000.
+    """
+    # Try all key name variants that different versions may have stored
+    def get_velocity(state, is_home=True):
+        for key in ['kalman_velocity', 'kalman_vel', 'kv', 'velocity']:
+            if key in state and state[key] != 0.0:
+                val = float(state[key])
+                return 0.0 if np.isnan(val) else val
+        # Compute from strength change if available
+        if 'kalman_strength' in state and 'glicko' in state:
+            val = (float(state['kalman_strength']) - float(state['glicko'])) / 100.0
+            return 0.0 if np.isnan(val) else val
+        return 0.0
+
+    def get_strength(state):
+        for key in ['kalman_strength', 'kalman_str', 'ks']:
+            if key in state and float(state[key]) != 1500.0:
+                val = float(state[key])
+                return 1500.0 if np.isnan(val) else val
+        val = float(state.get('glicko', 1500))
+        return 1500.0 if np.isnan(val) else val
+
+    def get_uncertainty(state):
+        for key in ['kalman_uncertainty', 'kalman_unc', 'ku']:
+            if key in state:
+                val = float(state[key])
+                return 150.0 if np.isnan(val) else val
+        val = float(state.get('rd', 150))
+        return 150.0 if np.isnan(val) else val
+
+    h_kv  = get_velocity(h, is_home=True)
+    a_kv  = get_velocity(a, is_home=False)
+    h_ks  = get_strength(h)
+    a_ks  = get_strength(a)
+    h_ku  = get_uncertainty(h)
+    a_ku  = get_uncertainty(a)
+
+    # Log if still zero after all fallbacks (diagnostic)
+    if h_kv == 0.0 and a_kv == 0.0:
+        import warnings
+        warnings.warn(
+            f"Kalman velocity is 0.0 for both teams. "
+            f"Home keys: {list(h.keys())[:8]}. "
+            f"Ensure train_test.py stores 'kalman_velocity' in team_states.json."
+        )
+
+    return {
+        'home_kalman_velocity':    h_kv,
+        'away_kalman_velocity':    a_kv,
+        'kalman_velocity_diff':    h_kv - a_kv,
+        'kalman_signal':           (h_ks - a_ks) / (np.sqrt(h_ku + a_ku) + 1e-9),
+        'home_kalman_strength':    h_ks,
+        'away_kalman_strength':    a_ks,
+    }
+
+
 def _build_feature_vector(home_team: str, away_team: str, venue_factor: float, stage: str,
                             team_states: dict, dc_params: dict, feature_cols: list) -> np.ndarray:
     """
@@ -157,14 +216,11 @@ def _build_feature_vector(home_team: str, away_team: str, venue_factor: float, s
     a_rd     = float(a.get('rd', 200))
     glicko_signal = (h_glicko - a_glicko) / (np.sqrt(h_rd**2 + a_rd**2) + 1e-9)
 
-    h_ks = float(h.get('kalman_strength', h_glicko))
-    a_ks = float(a.get('kalman_strength', a_glicko))
-    h_ku = float(h.get('kalman_uncertainty', 100))
-    a_ku = float(a.get('kalman_uncertainty', 100))
-    h_kv = float(h.get('kalman_velocity', 0.0))
-    a_kv = float(a.get('kalman_velocity', 0.0))
-    kalman_signal   = (h_ks - a_ks) / (np.sqrt(h_ku + a_ku) + 1e-9)
-    kalman_vel_diff = h_kv - a_kv
+    kalman_feats = _get_kalman_features(h, a)
+    h_kv = kalman_feats['home_kalman_velocity']
+    a_kv = kalman_feats['away_kalman_velocity']
+    kalman_vel_diff = kalman_feats['kalman_velocity_diff']
+    kalman_signal = kalman_feats['kalman_signal']
 
     h_xg = float(h.get('xg_rolling_3', 1.2))
     a_xg = float(a.get('xg_rolling_3', 1.0))

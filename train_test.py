@@ -46,12 +46,13 @@ def expected_calibration_error(y_true, y_prob, n_bins=10):
 # VECTORIZED DIXON-COLES (replaces row-by-row for speed)
 # =====================================================================
 from models.poisson_dixon_coles import (
-    fit_attack_defense, fit_rho_concentrated, 
+    fit_dixon_coles_nb, 
     score_probability_matrix, outcome_probs
 )
+from math import exp
 
 class FastDixonColes:
-    """Wrapper using the new two-stage V6.2 Dixon-Coles optimization."""
+    """Wrapper using the new two-stage V7.3 Dixon-Coles NB optimization."""
     
     def __init__(self):
         self.attack = {}
@@ -61,31 +62,14 @@ class FastDixonColes:
 
     def fit(self, df):
         t0 = time.time()
-        all_teams = sorted(set(df['home_team'].unique()) | set(df['away_team'].unique()))
+        dates = df['date'].view('int64') / 10**9 / 86400
         
-        home_teams = df['home_team'].values
-        away_teams = df['away_team'].values
-        home_goals = df['home_goals'].values.astype(int)
-        away_goals = df['away_goals'].values.astype(int)
+        res = fit_dixon_coles_nb(df, dates.values)
         
-        max_date = df['date'].max()
-        delta_days = (max_date - df['date']).dt.days.values.astype(float)
-        time_weights = np.exp(-0.0065 * delta_days)
-        
-        # Stage 1: MLE with Identifiability constraint
-        attack_arr, def_arr, h_adv, t_idx = fit_attack_defense(
-            home_teams, away_teams, home_goals, away_goals, all_teams, time_weights
-        )
-        
-        # Stage 2: Estimate Rho
-        self.rho = fit_rho_concentrated(
-            home_teams, away_teams, home_goals, away_goals,
-            attack_arr, def_arr, h_adv, t_idx, time_weights
-        )
-        
-        self.attack = {t: attack_arr[t_idx[t]] for t in all_teams}
-        self.defense = {t: def_arr[t_idx[t]] for t in all_teams}
-        self.home_adv = h_adv
+        self.attack = res['attack']
+        self.defense = res['defense']
+        self.home_adv = res['home_adv']
+        self.rho = res['rho']
         print(f"[DC MODEL]  Fitted in {time.time()-t0:.1f}s  (rho={self.rho:.4f}, "
               f"home_gamma={self.home_adv:.4f})")
 
@@ -142,6 +126,58 @@ def compute_dc_probs(row: pd.Series, dc_model_dict: dict) -> np.ndarray:
     h, d, a = outcome_probs(matrix)
     return np.array([h, d, a])
 
+def compute_alpha_target(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Create secondary alpha target: deviation from market implied probability.
+    Requires historical odds columns (novig_home, novig_draw, novig_away).
+    If odds not available, fills with NaN — ready for when you add the data.
+    """
+    if 'novig_home' in df.columns:
+        # True alpha: binary outcome minus market probability
+        df['alpha_home'] = (df['result'] == 'Home Win').astype(float) - df['novig_home']
+        df['alpha_draw'] = (df['result'] == 'Draw').astype(float)     - df['novig_draw']
+        df['alpha_away'] = (df['result'] == 'Away Win').astype(float) - df['novig_away']
+        print("  ✅ Alpha targets computed from historical odds")
+    else:
+        df['alpha_home'] = np.nan
+        df['alpha_draw'] = np.nan
+        df['alpha_away'] = np.nan
+        print("  ℹ️  Alpha targets: NaN (no historical odds — drop CSVs into data/ to activate)")
+    return df
+
+
+def compute_h2h_draw_rate(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute head-to-head specific draw rate for each match.
+    Captures tactical matchup effects (e.g., Italy vs Spain always draws).
+    Uses .shift(1).expanding() per pairing to prevent leakage.
+    """
+    df = df.sort_values('date').reset_index(drop=True)
+    draw_rates = []
+
+    for idx, row in df.iterrows():
+        ht = row['home_team']
+        at = row['away_team']
+
+        # All previous matches between these two teams (either direction)
+        past = df[
+            (df.index < idx) & (
+                ((df['home_team'] == ht) & (df['away_team'] == at)) |
+                ((df['home_team'] == at) & (df['away_team'] == ht))
+            )
+        ]
+
+        if len(past) >= 2:
+            rate = float((past['home_goals'] == past['away_goals']).mean())
+        else:
+            rate = 0.29   # international football prior
+
+        draw_rates.append(rate)
+
+    df['h2h_draw_rate'] = draw_rates
+    return df
+
+
 # =====================================================================
 # MAIN PIPELINE
 # =====================================================================
@@ -154,8 +190,8 @@ def main():
     t_start = time.time()
 
     # 1. LIVE DATA UPDATE
-    from data.live_updater import update_dataset
-    update_dataset(cutoff_date="2026-06-01")
+    # from data.live_updater import update_dataset
+    # update_dataset(cutoff_date="2026-06-01")
 
     # 1. DATA
     print("\n[DATA] Loading and enriching dataset with vision xG...")
@@ -176,6 +212,9 @@ def main():
     df = compute_v6_features(df)
     df = add_injury_features(df)
     df = add_movement_features(df)
+
+    df = compute_alpha_target(df)
+    df = compute_h2h_draw_rate(df)
 
     print("[FEATURES]  Computing Kalman, Regime & Factor features â€¦")
     kalman_system = KalmanRatingSystem()
@@ -212,8 +251,10 @@ def main():
             df.at[idx, k] = v
 
         # NOW update Kalman
-        home_xg = float(row.get('home_xg', 1.2) or 1.2)
-        away_xg = float(row.get('away_xg', 1.0) or 1.0)
+        home_xg_val = row.get('home_xg', 1.2)
+        home_xg = float(home_xg_val) if pd.notna(home_xg_val) else 1.2
+        away_xg_val = row.get('away_xg', 1.0)
+        away_xg = float(away_xg_val) if pd.notna(away_xg_val) else 1.0
         kalman_system.update_match(row['home_team'], row['away_team'], home_xg, away_xg)
 
     # 3. FEATURE COLUMNS & TARGET
@@ -233,6 +274,7 @@ def main():
         'xg_supremacy', 'draw_affinity', 'home_neutral_venue_form',
         'away_neutral_venue_form', 'rest_differential', 'stage_pressure',
         'injury_differential', 'key_injury_factor', 'press_proxy_diff',
+        'h2h_draw_rate',
     ]
 
     available_cols = [c for c in FEATURE_COLS_FULL if c in df.columns]
