@@ -580,14 +580,7 @@ def run_inference(home_team: str, away_team: str,
         dc_probs = np.array(cached["dc_probs"])
         dc_result = cached["dc_result"]
         
-        # ── Market Odds Prior for Meta-Learner ──
-        if all([home_odds, draw_odds, away_odds]):
-            raw = [1/home_odds, 1/draw_odds, 1/away_odds]
-            mkt_probs = np.array([r / sum(raw) for r in raw])
-        else:
-            mkt_probs = dc_probs
-            
-        meta_input = np.hstack([base_blend, dc_probs, mkt_probs]).reshape(1, -1)
+        meta_input = np.hstack([base_blend, dc_probs]).reshape(1, -1)
         final_proba = _meta_learner.predict_proba(meta_input)[0]
         final_proba = np.clip(final_proba, 0.05, 0.95)
         final_proba = final_proba / final_proba.sum()
