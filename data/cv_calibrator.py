@@ -5,7 +5,6 @@ Strategy: Pre-process video at 2fps (not 25fps) -> 92% GPU reduction.
 Output: CV-derived team rates that calibrate the Monte Carlo simulator.
 These rates are computed ONCE per match and cached — never run inside the MC loop.
 """
-import cv2
 import numpy as np
 import json
 import os
@@ -42,6 +41,7 @@ def get_cv_calibration(home_team: str, away_team: str,
     # Check if YOLO available
     try:
         from ultralytics import YOLO
+        import cv2
         YOLO_AVAILABLE = True
     except ImportError:
         YOLO_AVAILABLE = False
@@ -66,6 +66,7 @@ def _extract_cv_rates(video_path: str,
     """
     from ultralytics import YOLO
     import supervision as sv
+    import cv2
 
     # Use nano model (fastest) for calibration — accuracy is sufficient
     # yolov8n.pt = 6MB, runs at ~200fps on CPU, ~1500fps on GPU
