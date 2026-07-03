@@ -134,10 +134,10 @@ if live_mode:
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📡 Live Match Auto-Fetch")
 
-    fixture_id_input = st.sidebar.number_input(
-        "API-Football Fixture ID",
-        min_value=1, max_value=9999999, value=1035000,
-        help="Find in API-Football fixtures endpoint or URL"
+    fixture_id_input = st.sidebar.text_input(
+        "ESPN URL or Fixture ID",
+        value="https://www.espn.co.uk/football/match/_/gameId/760498",
+        help="Paste an ESPN Match URL (free) or API-Football Fixture ID"
     )
 
     auto_refresh = st.sidebar.toggle("🔄 Auto-refresh (60s)", value=True)
@@ -146,14 +146,13 @@ if live_mode:
     fetch_clicked = col_fetch.button("▶ Start Live", use_container_width=True)
     stop_clicked  = col_stop.button("⏹ Stop", use_container_width=True)
 
-    # Start poller on button click
     if fetch_clicked:
         from data.live_auto_poller import start_auto_poller, fetch_all_live_data
         with st.spinner("Fetching initial live data (this takes a few seconds)..."):
-            fetch_all_live_data(int(fixture_id_input), api_key=api_key)
-        start_auto_poller(int(fixture_id_input), interval=60, api_key=api_key)
+            fetch_all_live_data(fixture_id_input, api_key=api_key)
+        start_auto_poller(fixture_id_input, interval=60, api_key=api_key)
         st.session_state['poller_active'] = True
-        st.session_state['fixture_id']    = int(fixture_id_input)
+        st.session_state['fixture_id']    = fixture_id_input
         st.rerun()
 
     if stop_clicked:

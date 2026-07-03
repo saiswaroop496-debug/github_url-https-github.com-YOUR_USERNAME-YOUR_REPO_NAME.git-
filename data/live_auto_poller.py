@@ -27,7 +27,30 @@ def _headers(api_key: str = None) -> dict:
 BASE = "https://api-football-v1.p.rapidapi.com/v3"
 
 
-def fetch_all_live_data(fixture_id: int, api_key: str = None) -> dict:
+def fetch_all_live_data(identifier: str, api_key: str = None) -> dict:
+    """
+    Routes to ESPN scraper if URL is provided, otherwise falls back to API-Football.
+    """
+    s_id = str(identifier)
+    if "espn.co" in s_id or "espn.com" in s_id:
+        from data.espn_scraper import fetch_espn_live_data
+        import re
+        m = re.search(r'(?:gameId/|gameId=)(\d+)', s_id)
+        if m:
+            return fetch_espn_live_data(m.group(1))
+        else:
+            warnings.warn("Could not extract gameId from ESPN URL")
+            return {}
+            
+    # Fallback to API-Football
+    try:
+        return _fetch_api_football(int(s_id), api_key)
+    except ValueError:
+        warnings.warn("Invalid fixture ID or ESPN URL")
+        return {}
+
+
+def _fetch_api_football(fixture_id: int, api_key: str = None) -> dict:
     """
     Single function — fetches EVERYTHING for a live fixture:
     score, goals, cards, substitutions, stats, lineups, events.
@@ -240,7 +263,7 @@ def fetch_all_live_data(fixture_id: int, api_key: str = None) -> dict:
     return state
 
 
-def start_auto_poller(fixture_id: int, interval: int = 60, api_key: str = None):
+def start_auto_poller(identifier: str, interval: int = 60, api_key: str = None):
     """
     Start background thread that auto-fetches live data every `interval` seconds.
     Stops automatically when match finishes.
@@ -249,10 +272,10 @@ def start_auto_poller(fixture_id: int, interval: int = 60, api_key: str = None):
 
     def _poll_loop():
         global _latest_state
-        print(f"📡 Auto-poller started for fixture {fixture_id} "
+        print(f"📡 Auto-poller started for fixture {identifier} "
               f"(every {interval}s)")
         while True:
-            state = fetch_all_live_data(fixture_id, api_key)
+            state = fetch_all_live_data(identifier, api_key)
             _latest_state = state
 
             elapsed = state.get("elapsed", 0)
