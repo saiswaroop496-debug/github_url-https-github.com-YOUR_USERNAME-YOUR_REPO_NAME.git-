@@ -261,9 +261,12 @@ def _build_feature_vector(home_team: str, away_team: str, venue_factor: float, s
         'injury_differential':       float(h.get('injuries', 0)) - float(a.get('injuries', 0)),
         'key_injury_factor':         float(h.get('key_injury_factor', 0.0)),
         'press_proxy_diff':          0.0,   # not available pre-match
-        'tournament_momentum_diff':  float(h.get('tournament_momentum', 0)) - float(a.get('tournament_momentum', 0)),
-        'glicko_velocity_diff':      float(h.get('glicko_velocity', 0)) - float(a.get('glicko_velocity', 0)),
-        'factor_momentum_diff':      float(h.get('factor_momentum', 0)) - float(a.get('factor_momentum', 0)),
+        'tournament_momentum_diff':  float(h.get('tournament_momentum', 0.0)) - float(a.get('tournament_momentum', 0.0)),
+        'glicko_velocity_diff':      float(h.get('glicko_velocity', 0.0)) - float(a.get('glicko_velocity', 0.0)),
+        'conversion_diff':           float(h.get('xg_conversion', 1.0)) - float(a.get('xg_conversion', 1.0)),
+        'defensive_shape_diff':      float(h.get('defensive_shape', 1.0)) - float(a.get('defensive_shape', 1.0)),
+        'lineup_continuity_diff':    float(h.get('lineup_continuity', 1.0)) - float(a.get('lineup_continuity', 1.0)),
+        'factor_momentum_diff':      float(h.get('factor_momentum', 0.0)) - float(a.get('factor_momentum', 0.0)),
     }
 
     vec = np.array([feature_map.get(col, 0.0) for col in feature_cols])

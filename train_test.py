@@ -742,11 +742,22 @@ def export_team_states(df: pd.DataFrame, glicko_ratings: dict, kalman_system,
             if row['home_team'] == team:
                 xg_roll3 = float(row.get('home_xg_rolling_3', 1.2) or 1.2)
                 nv_form  = float(row.get('home_neutral_venue_form', 0.5) or 0.5)
+                tm = float(row.get('home_tournament_momentum', 0.0) or 0.0)
+                gv = float(row.get('home_glicko_velocity', 0.0) or 0.0)
+                conv = float(row.get('home_xg_conversion', 1.0) or 1.0)
+                df_shape = float(row.get('home_defensive_shape', 1.0) or 1.0)
+                lc = float(row.get('home_lineup_continuity', 1.0) or 1.0)
             else:
                 xg_roll3 = float(row.get('away_xg_rolling_3', 1.0) or 1.0)
                 nv_form  = float(row.get('away_neutral_venue_form', 0.5) or 0.5)
+                tm = float(row.get('away_tournament_momentum', 0.0) or 0.0)
+                gv = float(row.get('away_glicko_velocity', 0.0) or 0.0)
+                conv = float(row.get('away_xg_conversion', 1.0) or 1.0)
+                df_shape = float(row.get('away_defensive_shape', 1.0) or 1.0)
+                lc = float(row.get('away_lineup_continuity', 1.0) or 1.0)
         else:
             xg_roll3 = 1.2; nv_form = 0.5
+            tm = 0.0; gv = 0.0; conv = 1.0; df_shape = 1.0; lc = 1.0
 
         team_states[team] = {
             # Glicko (kept for stability)
@@ -762,6 +773,12 @@ def export_team_states(df: pd.DataFrame, glicko_ratings: dict, kalman_system,
             # Rolling features
             "xg_rolling_3":       round(xg_roll3, 3),
             "neutral_venue_form": round(nv_form, 3),
+            # Alpha Signals
+            "tournament_momentum": round(tm, 3),
+            "glicko_velocity":     round(gv, 4),
+            "xg_conversion":       round(conv, 3),
+            "defensive_shape":     round(df_shape, 3),
+            "lineup_continuity":   round(lc, 3),
         }
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
