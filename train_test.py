@@ -440,10 +440,24 @@ def main():
 
         print(f"\n  --- Fold {fold_idx+1} ---  train={len(train_idx)}, test={len(test_idx)}")
         
-        # FIX 1: DC Model fitted on fold train
+        # FIX 1: DC Model fitted on fold train (with proper OOF for meta-learner)
         df_train = df.iloc[train_idx].copy()
         df_test  = df.iloc[test_idx].copy()
         print(f"  [Fold {fold_idx+1}] Fitting DC on {len(df_train)} train matches...")
+        
+        # OOF predictions for DC to prevent Target Leakage in Meta-Learner
+        from sklearn.model_selection import KFold
+        dc_cv = KFold(n_splits=3, shuffle=False)
+        dc_probs_train = np.zeros((len(df_train), 3))
+        
+        for dc_tr, dc_val in dc_cv.split(df_train):
+            dc_inner = FastDixonColes()
+            dc_inner.fit(df_train.iloc[dc_tr])
+            dc_dict_inner = {'attack': dc_inner.attack, 'defense': dc_inner.defense, 'home_adv': dc_inner.home_adv, 'rho': dc_inner.rho}
+            for i, val_idx in enumerate(dc_val):
+                dc_probs_train[val_idx] = compute_dc_probs(df_train.iloc[val_idx], dc_dict_inner)
+                
+        # Fit final DC on all train for test evaluation
         dc_model_fold = FastDixonColes()
         dc_model_fold.fit(df_train)
         
@@ -454,7 +468,6 @@ def main():
             'rho': dc_model_fold.rho
         }
 
-        dc_probs_train = np.array([compute_dc_probs(row, dc_model_dict) for _, row in df_train.iterrows()])
         dc_probs_test  = np.array([compute_dc_probs(row, dc_model_dict) for _, row in df_test.iterrows()])
 
         # FIX 3: Feature selection inside loop
@@ -477,8 +490,8 @@ def main():
         X_test  = X_test_df[selected_cols_fold].values
 
         # FIX 2: Meta-Learner Inner CV OOF
-        from sklearn.model_selection import TimeSeriesSplit
-        inner_cv = TimeSeriesSplit(n_splits=3)
+        from sklearn.model_selection import KFold
+        inner_cv = KFold(n_splits=3, shuffle=False)
         oof_ml = np.zeros((len(X_train), 3))
         
         def build_bls(optuna_params):

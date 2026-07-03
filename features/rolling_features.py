@@ -236,12 +236,22 @@ def add_injury_features(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = 0
 
-    # Shift injury counts per team so match N uses injuries from match N-1
+    # Unpivot to team history to correctly apply shift(1) across home/away venues
     df = df.sort_values('date').reset_index(drop=True)
-    df['home_injuries_lagged']    = df.groupby('home_team')['home_injuries'].shift(1).fillna(0)
-    df['away_injuries_lagged']    = df.groupby('away_team')['away_injuries'].shift(1).fillna(0)
-    df['home_key_injury_lagged']  = df.groupby('home_team')['home_key_injury'].shift(1).fillna(0)
-    df['away_key_injury_lagged']  = df.groupby('away_team')['away_key_injury'].shift(1).fillna(0)
+    
+    team_injuries = []
+    for _, row in df.iterrows():
+        team_injuries.append({'date': row['date'], 'team': row['home_team'], 'injuries': row['home_injuries'], 'key_injury': row['home_key_injury'], 'match_id': row['match_id'], 'is_home': True})
+        team_injuries.append({'date': row['date'], 'team': row['away_team'], 'injuries': row['away_injuries'], 'key_injury': row['away_key_injury'], 'match_id': row['match_id'], 'is_home': False})
+        
+    hist = pd.DataFrame(team_injuries).sort_values(['team', 'date'])
+    hist['injuries_lagged'] = hist.groupby('team')['injuries'].shift(1).fillna(0)
+    hist['key_injury_lagged'] = hist.groupby('team')['key_injury'].shift(1).fillna(0)
+    
+    for col, side in [('home', True), ('away', False)]:
+        mapping = hist[hist['is_home'] == side].drop_duplicates('match_id').set_index('match_id')
+        df[f'{col}_injuries_lagged'] = df['match_id'].map(mapping['injuries_lagged']).fillna(0)
+        df[f'{col}_key_injury_lagged'] = df['match_id'].map(mapping['key_injury_lagged']).fillna(0)
 
     df['injury_differential'] = df['away_injuries_lagged'] - df['home_injuries_lagged']
     df['key_injury_factor']   = (
@@ -294,8 +304,21 @@ def add_movement_features(df: pd.DataFrame,
             df.at[idx, 'away_total_sprints']      = s.get('away_total_sprints', 0)
 
     # Anti-leakage shift: physical data from match N-1 predicts match N
-    for col in movement_cols:
-        df[col] = df.groupby('home_team')[col].shift(1).fillna(0)
+    team_movements = []
+    for _, row in df.iterrows():
+        team_movements.append({'date': row['date'], 'team': row['home_team'], 'speed_diff': row['speed_diff'], 'total_dist': row['home_total_distance_m'], 'total_sprints': row['home_total_sprints'], 'match_id': row['match_id'], 'is_home': True})
+        team_movements.append({'date': row['date'], 'team': row['away_team'], 'speed_diff': -row['speed_diff'], 'total_dist': row['away_total_distance_m'], 'total_sprints': row['away_total_sprints'], 'match_id': row['match_id'], 'is_home': False})
+        
+    hist = pd.DataFrame(team_movements).sort_values(['team', 'date'])
+    for col in ['speed_diff', 'total_dist', 'total_sprints']:
+        hist[f'{col}_lagged'] = hist.groupby('team')[col].shift(1).fillna(0)
+        
+    for col, side in [('home', True), ('away', False)]:
+        mapping = hist[hist['is_home'] == side].drop_duplicates('match_id').set_index('match_id')
+        if side:
+            df['speed_diff'] = df['match_id'].map(mapping['speed_diff_lagged']).fillna(0)
+        df[f'{col}_total_distance_m'] = df['match_id'].map(mapping['total_dist_lagged']).fillna(0)
+        df[f'{col}_total_sprints'] = df['match_id'].map(mapping['total_sprints_lagged']).fillna(0)
 
     return df
 

@@ -57,12 +57,15 @@ _feature_cols   = None
 _dc_params      = None   # {attack, defense, home_adv, rho, team_idx}
 
 
-def _load_base_artifacts():
-    """Load lightweight artifacts (JSON states, DC params)."""
-    global _team_states, _feature_cols, _dc_params
+_last_states_hash = None
 
-    if _team_states is not None:
+def _load_base_artifacts(states_hash=None):
+    """Load lightweight artifacts (JSON states, DC params)."""
+    global _team_states, _feature_cols, _dc_params, _last_states_hash
+
+    if _team_states is not None and states_hash == _last_states_hash:
         return
+    _last_states_hash = states_hash
 
     if not MODEL_DIR.exists():
         raise FileNotFoundError(f"Model directory not found: {MODEL_DIR}")
@@ -103,9 +106,9 @@ def _load_ml_artifacts():
     print(f"Features: {_feature_cols} | Teams: {len(_team_states)}")
 
 
-def _ensure_loaded(is_live=False):
+def _ensure_loaded(is_live=False, states_hash=None):
     """Lazy loader - splits loading based on requirement."""
-    _load_base_artifacts()
+    _load_base_artifacts(states_hash)
     if not is_live:
         _load_ml_artifacts()
 
@@ -487,7 +490,7 @@ def _cached_inference(home_team: str, away_team: str,
                        venue_factor: float, stage: str,
                        states_hash: str) -> str:
     """Core inference — cached."""
-    _ensure_loaded()
+    _ensure_loaded(is_live=False, states_hash=states_hash)
     dc_params   = _dc_params if _dc_params else {"rho": -0.13, "home_adv": 1.2, "neutral_gamma": 1.0, "attack": {}, "defense": {}}
     team_states = _team_states
     feature_cols = _feature_cols
@@ -545,44 +548,6 @@ def _cached_inference(home_team: str, away_team: str,
         }
     })
 
-    # 3. Scale
-    X_input = _scaler.transform(X.reshape(1, -1)) if _scaler else X.reshape(1, -1)
-
-    # 4. Base learner predictions
-    cat_h, cat_a, xgb_h, xgb_a, ridge_h, ridge_a = _base_learners
-    pred_h = (cat_h.predict(X_input) + xgb_h.predict(X_input) + ridge_h.predict(X_input)) / 3.0
-    pred_a = (cat_a.predict(X_input) + xgb_a.predict(X_input) + ridge_a.predict(X_input)) / 3.0
-    
-    from train_test import xg_to_probs
-    base_blend = xg_to_probs(pred_h, pred_a)[0]
-
-    # 6. Meta-learner gate with augmented features
-    if dc_result:
-        dc_probs = np.array([dc_result["home_win"], dc_result["draw"], dc_result["away_win"]])
-    else:
-        # Fallback if DC fails (pad with equal probs)
-        dc_probs = np.array([0.333, 0.334, 0.333])
-        dc_result = {}
-        
-    # The meta-learner expects 9 features: [ML, DC, Prior]
-    # We will inject the market odds prior later if provided, but for caching purposes
-    # we return the ML and DC probs, and do the meta-learner step outside the cache.
-    # Wait, the meta-learner runs inside _cached_inference!
-    # If we want to use live odds, we can't cache the result based on odds.
-    # Let's just return the raw inputs and let `run_inference` call the meta-learner.
-    pass # We will fix this by moving meta-learner evaluation to run_inference
-
-    return json.dumps({
-        "home_team":      home_team,
-        "away_team":      away_team,
-        "base_blend":     base_blend.tolist(),
-        "dc_probs":       dc_probs.tolist(),
-        "dc_result":      dc_result,
-        "signals": {
-            "kalman_velocity_diff": float(X[_feature_cols.index("kalman_velocity_diff")]) if "kalman_velocity_diff" in _feature_cols else 0.0,
-            "draw_affinity":        float(X[_feature_cols.index("draw_affinity")]) if "draw_affinity" in _feature_cols else 0.0
-        }
-    })
 
 
 
@@ -622,6 +587,8 @@ def run_inference(home_team: str, away_team: str,
             eff_ha = home_adv * venue_factor
             lam_h = np.exp(attack[home_team] - defense[away_team] + eff_ha)
             lam_a = np.exp(attack[away_team] - defense[home_team])
+            lam_h = min(max(lam_h, 0.01), 15.0)
+            lam_a = min(max(lam_a, 0.01), 15.0)
         else:
             lam_h, lam_a = 1.4, 1.0
 
