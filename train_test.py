@@ -254,10 +254,14 @@ def main():
         compute_pressure_index, compute_elo_uncertainty_feature, compute_squad_age_profile
     )
     from features.institutional_signals import add_institutional_signals
+    from data.odds_loader import enrich_dataset_with_odds
+
     df = compute_v6_features(df)
     df = add_injury_features(df)
     df = add_movement_features(df)
     df = add_institutional_signals(df)
+    df = enrich_dataset_with_odds(df)
+    df = compute_alpha_target(df)
     
     df = compute_pressure_index(df)
     df = compute_elo_uncertainty_feature(df)
@@ -332,7 +336,23 @@ def main():
         'pressure_diff',
         'elo_uncertainty_x_stage_norm',
         'age_profile_diff',
+        # Historical Odds
+        'novig_home', 'novig_draw', 'novig_away'
     ]
+
+    # Impute missing odds using the model's own Glicko prior (out-of-sample)
+    if 'novig_home' in df.columns:
+        # standard Elo win prob formula
+        glicko_win_prob = 1 / (1 + 10 ** ((df['away_glicko'] - df['home_glicko']) / 400))
+        # assume ~25% draw baseline for internationals
+        draw_prior = 0.25
+        home_prior = glicko_win_prob * (1 - draw_prior)
+        away_prior = (1 - glicko_win_prob) * (1 - draw_prior)
+        
+        df['novig_home'] = df['novig_home'].fillna(home_prior)
+        df['novig_draw'] = df['novig_draw'].fillna(draw_prior)
+        df['novig_away'] = df['novig_away'].fillna(away_prior)
+        print(f"  [Odds Fallback] Imputed {df['novig_home'].isna().sum()} missing odds rows with Glicko prior.")
 
     available_cols = [c for c in FEATURE_COLS_FULL if c in df.columns]
     print(f"  Features available: {len(available_cols)}/{len(FEATURE_COLS_FULL)}")
