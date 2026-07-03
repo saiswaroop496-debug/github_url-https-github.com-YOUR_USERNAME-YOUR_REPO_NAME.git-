@@ -200,6 +200,26 @@ def _get_kalman_features(h: dict, a: dict) -> dict:
     }
 
 
+def _get_pressure_features(match_meta: dict, h_glicko: float, a_glicko: float) -> dict:
+    """
+    Compute pressure features at inference time for live predictions.
+    """
+    round_weights = {
+        'Group Stage': 0.4, 'Round of 16': 0.6,
+        'Quarter-Finals': 0.8, 'Semi-Finals': 0.9, 'Final': 1.0,
+    }
+    stage_w    = round_weights.get(match_meta.get('round', 'Group Stage'), 0.5)
+    diff_abs   = abs(h_glicko - a_glicko) + 1
+    pressure_d = stage_w * (1500 / (h_glicko + 1)) - stage_w * (1500 / (a_glicko + 1))
+    unc_stage  = stage_w / (diff_abs / 100.0 + 1.0)
+
+    return {
+        'pressure_diff':                float(np.clip(pressure_d, -2, 2)),
+        'elo_uncertainty_x_stage_norm': float(np.clip(unc_stage / 5.0, 0, 1)),
+        'age_profile_diff':             0.0,   # neutral at inference; no real-time age data
+    }
+
+
 def _build_feature_vector(home_team: str, away_team: str, venue_factor: float, stage: str,
                             team_states: dict, dc_params: dict, feature_cols: list) -> np.ndarray:
     """
@@ -239,6 +259,8 @@ def _build_feature_vector(home_team: str, away_team: str, venue_factor: float, s
                  'quarter_final':0.7,'semi_final':0.85,'final':1.0}
     stage_pressure = stage_map.get(stage, 0.0)
 
+    pressure_feats = _get_pressure_features({'round': stage}, h_glicko, a_glicko)
+
     feature_map = {
         'home_glicko':               h_glicko,
         'home_rd':                   h_rd,
@@ -264,8 +286,11 @@ def _build_feature_vector(home_team: str, away_team: str, venue_factor: float, s
         'tournament_momentum_diff':  float(h.get('tournament_momentum', 0.0)) - float(a.get('tournament_momentum', 0.0)),
         'glicko_velocity_diff':      float(h.get('glicko_velocity', 0.0)) - float(a.get('glicko_velocity', 0.0)),
         'conversion_diff':           float(h.get('xg_conversion', 1.0)) - float(a.get('xg_conversion', 1.0)),
-        'defensive_shape_diff':      float(h.get('defensive_shape', 1.0)) - float(a.get('defensive_shape', 1.0)),
-        'lineup_continuity_diff':    float(h.get('lineup_continuity', 1.0)) - float(a.get('lineup_continuity', 1.0)),
+        'defensive_shape_diff':      float(h.get('defensive_shape', 1.0) - a.get('defensive_shape', 1.0)),
+        'lineup_continuity_diff':    float(h.get('lineup_continuity', 1.0) - a.get('lineup_continuity', 1.0)),
+        'pressure_diff':             pressure_feats['pressure_diff'],
+        'elo_uncertainty_x_stage_norm': pressure_feats['elo_uncertainty_x_stage_norm'],
+        'age_profile_diff':          pressure_feats['age_profile_diff'],
         'factor_momentum_diff':      float(h.get('factor_momentum', 0.0)) - float(a.get('factor_momentum', 0.0)),
     }
 

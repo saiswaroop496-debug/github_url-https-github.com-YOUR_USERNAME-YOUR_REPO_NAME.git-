@@ -179,7 +179,48 @@ def compute_h2h_draw_rate(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # =====================================================================
-# MAIN PIPELINE
+# V7.4 OPTUNA PARAMETERS
+# =====================================================================
+from pathlib import Path
+import json
+
+OPTUNA_PARAMS_PATH = Path("model_versions/optuna_best_params.json")
+
+def load_optuna_params() -> dict:
+    defaults = {
+        'xgboost_main': {
+            'params': {
+                'max_depth': 4, 'learning_rate': 0.05, 'n_estimators': 300,
+                'subsample': 0.8, 'colsample_bytree': 0.7,
+                'min_child_weight': 3, 'reg_alpha': 0.1, 'reg_lambda': 1.0,
+                'gamma': 0.1, 'max_delta_step': 1,
+            }
+        },
+        'catboost_base': {
+            'params': {
+                'depth': 5, 'learning_rate': 0.05, 'iterations': 300,
+                'l2_leaf_reg': 3.0, 'bagging_temperature': 0.5,
+                'border_count': 128, 'random_strength': 1.0,
+            }
+        },
+        'draw_gate': {
+            'params': {
+                'max_depth': 3, 'learning_rate': 0.05, 'n_estimators': 200,
+                'subsample': 0.8, 'colsample_bytree': 0.7,
+                'scale_pos_weight': 2.5, 'min_child_weight': 5, 'reg_alpha': 0.1,
+            }
+        },
+    }
+    if not OPTUNA_PARAMS_PATH.exists():
+        print("  ℹ️  No Optuna params found — using V7.3 defaults.")
+        return defaults
+    with open(OPTUNA_PARAMS_PATH) as f:
+        optuna_params = json.load(f)
+    print(f"  ✅ Loaded Optuna params from {OPTUNA_PARAMS_PATH}")
+    return optuna_params
+
+# =====================================================================
+# V7.2 - COMPLETE END-TO-END META-LEARNER PIPELINE (FIFA WC)
 # =====================================================================
 
 def main():
@@ -208,12 +249,19 @@ def main():
     df = glicko.compute_ratings(df)
 
     print("[FEATURES]  Computing V6 & Institutional features ...")
-    from features.rolling_features import compute_v6_features, add_injury_features, add_movement_features
+    from features.rolling_features import (
+        compute_v6_features, add_injury_features, add_movement_features,
+        compute_pressure_index, compute_elo_uncertainty_feature, compute_squad_age_profile
+    )
     from features.institutional_signals import add_institutional_signals
     df = compute_v6_features(df)
     df = add_injury_features(df)
     df = add_movement_features(df)
     df = add_institutional_signals(df)
+    
+    df = compute_pressure_index(df)
+    df = compute_elo_uncertainty_feature(df)
+    df = compute_squad_age_profile(df)
 
     df = compute_alpha_target(df)
     df = compute_h2h_draw_rate(df)
@@ -280,6 +328,10 @@ def main():
         'away_neutral_venue_form', 'rest_differential', 'stage_pressure',
         'injury_differential', 'key_injury_factor', 'press_proxy_diff',
         'h2h_draw_rate',
+        # V7.4 Priority 6 signals
+        'pressure_diff',
+        'elo_uncertainty_x_stage_norm',
+        'age_profile_diff',
     ]
 
     available_cols = [c for c in FEATURE_COLS_FULL if c in df.columns]
@@ -307,18 +359,31 @@ def main():
 
     X_full_temp = df[available_cols].copy()
     y_full_temp = df['home_goals']
-    
     X = df[available_cols].copy()
     y_home_goals = df['home_goals']
     y_away_goals = df['away_goals']
     y_outcome = np.where(df['home_goals'] > df['away_goals'], 0,
-                np.where(df['home_goals'] == df['away_goals'], 1, 2))
+            np.where(df['home_goals'] == df['away_goals'], 1, 2))
+
+    # EXPORT FOR OPTUNA
+    import joblib
+    joblib.dump({
+        'X': X.values,
+        'y': y_outcome,
+        'feature_cols': available_cols,
+        'df': df
+    }, "data/feature_vectors.joblib")
+    print(f"[DATA] Exported {X.shape} features to data/feature_vectors.joblib for Optuna")
 
     print(f"\n[TARGET]  Class distribution:")
-    for cls, name in [(0, 'Home Win'), (1, 'Draw'), (2, 'Away Win')]:
-        print(f"          {name}:  {(y_outcome == cls).sum()} ({(y_outcome == cls).mean()*100:.1f}%)")
+    print(f"          Home Win:  {(y_outcome==0).sum()} ({np.mean(y_outcome==0)*100:.1f}%)")
+    print(f"          Draw:  {(y_outcome==1).sum()} ({np.mean(y_outcome==1)*100:.1f}%)")
+    print(f"          Away Win:  {(y_outcome==2).sum()} ({np.mean(y_outcome==2)*100:.1f}%)")
 
     # DC probs will be computed per-fold
+    
+    # Load Optuna params
+    optuna_params = load_optuna_params()
 
     # 5. WALK-FORWARD VALIDATION
     N_FOLDS = 5
@@ -416,28 +481,61 @@ def main():
         inner_cv = TimeSeriesSplit(n_splits=3)
         oof_ml = np.zeros((len(X_train), 3))
         
-        def build_bls():
-            cat_h = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
-                                       iterations=250, learning_rate=0.04, subsample=0.8,
-                                       bootstrap_type='Bernoulli',
-                                       random_seed=42, verbose=0, thread_count=1)
-            xgb_h = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
-                                  n_estimators=200, learning_rate=0.04, subsample=0.8,
-                                  random_state=42, verbosity=0, n_jobs=1)
+        def build_bls(optuna_params):
+            cat_p = optuna_params['catboost_base']['params']
+            xgb_p = optuna_params['xgboost_main']['params']
+            
+            cat_h = CatBoostRegressor(
+                depth=cat_p.get('depth', 3), 
+                l2_leaf_reg=cat_p.get('l2_leaf_reg', 15.0),
+                iterations=cat_p.get('iterations', 250), 
+                learning_rate=cat_p.get('learning_rate', 0.04), 
+                bagging_temperature=cat_p.get('bagging_temperature', 1.0),
+                border_count=cat_p.get('border_count', 128),
+                random_strength=cat_p.get('random_strength', 1.0),
+                random_seed=42, verbose=0, thread_count=1
+            )
+            xgb_h = XGBRegressor(
+                max_depth=xgb_p.get('max_depth', 3), 
+                min_child_weight=xgb_p.get('min_child_weight', 10), 
+                reg_lambda=xgb_p.get('reg_lambda', 12.0),
+                reg_alpha=xgb_p.get('reg_alpha', 0.0),
+                n_estimators=xgb_p.get('n_estimators', 200), 
+                learning_rate=xgb_p.get('learning_rate', 0.04), 
+                subsample=xgb_p.get('subsample', 0.8),
+                colsample_bytree=xgb_p.get('colsample_bytree', 1.0),
+                gamma=xgb_p.get('gamma', 0.0),
+                random_state=42, verbosity=0, n_jobs=1
+            )
             ridge_h = Ridge(alpha=15.0)
 
-            cat_a = CatBoostRegressor(depth=3, l2_leaf_reg=15.0, min_data_in_leaf=10,
-                                       iterations=250, learning_rate=0.04, subsample=0.8,
-                                       bootstrap_type='Bernoulli',
-                                       random_seed=42, verbose=0, thread_count=1)
-            xgb_a = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0,
-                                  n_estimators=200, learning_rate=0.04, subsample=0.8,
-                                  random_state=42, verbosity=0, n_jobs=1)
+            cat_a = CatBoostRegressor(
+                depth=cat_p.get('depth', 3), 
+                l2_leaf_reg=cat_p.get('l2_leaf_reg', 15.0),
+                iterations=cat_p.get('iterations', 250), 
+                learning_rate=cat_p.get('learning_rate', 0.04), 
+                bagging_temperature=cat_p.get('bagging_temperature', 1.0),
+                border_count=cat_p.get('border_count', 128),
+                random_strength=cat_p.get('random_strength', 1.0),
+                random_seed=42, verbose=0, thread_count=1
+            )
+            xgb_a = XGBRegressor(
+                max_depth=xgb_p.get('max_depth', 3), 
+                min_child_weight=xgb_p.get('min_child_weight', 10), 
+                reg_lambda=xgb_p.get('reg_lambda', 12.0),
+                reg_alpha=xgb_p.get('reg_alpha', 0.0),
+                n_estimators=xgb_p.get('n_estimators', 200), 
+                learning_rate=xgb_p.get('learning_rate', 0.04), 
+                subsample=xgb_p.get('subsample', 0.8),
+                colsample_bytree=xgb_p.get('colsample_bytree', 1.0),
+                gamma=xgb_p.get('gamma', 0.0),
+                random_state=42, verbosity=0, n_jobs=1
+            )
             ridge_a = Ridge(alpha=15.0)
             return cat_h, xgb_h, ridge_h, cat_a, xgb_a, ridge_a
             
         for inner_tr_idx, inner_val_idx in inner_cv.split(X_train):
-            ch, xh, rh, ca, xa, ra = build_bls()
+            ch, xh, rh, ca, xa, ra = build_bls(optuna_params)
             ch.fit(X_train[inner_tr_idx], y_tr_h[inner_tr_idx], sample_weight=w_train[inner_tr_idx])
             xh.fit(X_train[inner_tr_idx], y_tr_h[inner_tr_idx], sample_weight=w_train[inner_tr_idx])
             rh.fit(X_train[inner_tr_idx], y_tr_h[inner_tr_idx], sample_weight=w_train[inner_tr_idx])
@@ -451,7 +549,7 @@ def main():
             oof_ml[inner_val_idx] = xg_to_probs(ph, pa)
             
         # Refit on all train
-        cat_h, xgb_h, ridge_h, cat_a, xgb_a, ridge_a = build_bls()
+        cat_h, xgb_h, ridge_h, cat_a, xgb_a, ridge_a = build_bls(optuna_params)
         cat_h.fit(X_train, y_tr_h, sample_weight=w_train)
         xgb_h.fit(X_train, y_tr_h, sample_weight=w_train)
         ridge_h.fit(X_train, y_tr_h, sample_weight=w_train)
@@ -472,7 +570,11 @@ def main():
         label_map = {0: 'Home Win', 1: 'Draw', 2: 'Away Win'}
         y_train_str = np.array([label_map[y] for y in y_train_out])
         
-        meta_lr = fit_meta_learner(augmented_train, y_train_str)
+        meta_lr = fit_meta_learner(
+            augmented_train, 
+            y_train_str, 
+            draw_gate_params=optuna_params['draw_gate']['params']
+        )
         final_probs = meta_lr.predict_proba(augmented_test)
         preds = np.argmax(final_probs, axis=1)
         

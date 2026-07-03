@@ -47,17 +47,28 @@ class TwoHeadMetaLearner:
     Calibration pipeline:
         raw outputs → Isotonic calibration per market → Temperature Scaling
     """
-    def __init__(self, C_direction=0.5):
+    def __init__(self, C_direction=0.5, draw_gate_params=None):
         if XGB_AVAILABLE:
-            self.draw_gate = XGBClassifier(
-                n_estimators=50,
-                max_depth=3,
-                learning_rate=0.05,
-                scale_pos_weight=3.5,
-                eval_metric='logloss',
-                verbosity=0,
-                random_state=42
-            )
+            if draw_gate_params:
+                self.draw_gate = XGBClassifier(
+                    **draw_gate_params,
+                    objective='binary:logistic',
+                    eval_metric='logloss',
+                    use_label_encoder=False,
+                    random_state=42,
+                    n_jobs=-1,
+                    verbosity=0
+                )
+            else:
+                self.draw_gate = XGBClassifier(
+                    n_estimators=50,
+                    max_depth=3,
+                    learning_rate=0.05,
+                    scale_pos_weight=3.5,
+                    eval_metric='logloss',
+                    verbosity=0,
+                    random_state=42
+                )
         else:
             self.draw_gate = LogisticRegression(
                 C=0.3, class_weight={0: 1.0, 1: 3.5},
@@ -193,7 +204,7 @@ class TwoHeadMetaLearner:
 
 
 # ─── FIT PIPELINE ─────────────────────────────────────────────────────────────
-def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray) -> TwoHeadMetaLearner:
+def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray, draw_gate_params=None) -> TwoHeadMetaLearner:
     """
     Fit meta-learner with tighter calibration split (75/25 instead of 85/15).
     oof_preds: (N, 6) — 3 ML base-learner probs + 3 DC probs concatenated.
@@ -201,7 +212,7 @@ def fit_meta_learner(oof_preds: np.ndarray, y_oof: np.ndarray) -> TwoHeadMetaLea
     n = len(y_oof)
     cal_split = int(n * 0.75)   # ← 25% for calibration (was 15%)
 
-    model = TwoHeadMetaLearner()
+    model = TwoHeadMetaLearner(draw_gate_params=draw_gate_params)
     model.fit(oof_preds[:cal_split], y_oof[:cal_split])
     model.fit_calibration(oof_preds[cal_split:], y_oof[cal_split:])
 

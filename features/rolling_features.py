@@ -391,3 +391,72 @@ def add_institutional_signals(df):
 
     df.drop(columns=['date_dt'], inplace=True)
     return df
+
+def compute_pressure_index(df: pd.DataFrame) -> pd.DataFrame:
+    """Priority 6 (V7.4): Measures differential high-stakes experience."""
+    round_weights = {
+        'Group': 0.4, 
+        'Knockout': 0.7, 
+        'Final': 1.0,
+    }
+    df['stage_weight'] = df['tournament_stage'].map(round_weights).fillna(0.5)
+    df['glicko_diff_abs'] = abs(df['home_glicko'] - df['away_glicko']) + 1
+    
+    df['home_pressure_index'] = (
+        df['stage_weight'] * (1500 / (df['home_glicko'] + 1))
+    ).clip(0, 2)
+
+    df['away_pressure_index'] = (
+        df['stage_weight'] * (1500 / (df['away_glicko'] + 1))
+    ).clip(0, 2)
+
+    df['pressure_diff'] = df['home_pressure_index'] - df['away_pressure_index']
+    return df
+
+
+def compute_elo_uncertainty_feature(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Interaction term: high-stakes + evenly-matched = elevated draw probability.
+    Captures the tournament psychology that pure ELO misses.
+    """
+    if 'stage_weight' not in df.columns:
+        df = compute_pressure_index(df)   # ensure stage_weight exists
+
+    # Uncertainty × stage: peaks when teams are equal ability in knockouts
+    df['elo_uncertainty_x_stage'] = (
+        df['stage_weight'] / (df['glicko_diff_abs'] / 100.0 + 1.0)
+    ).clip(0, 5)
+
+    # Normalized version (0-1 scale for XGBoost stability)
+    max_val = df['elo_uncertainty_x_stage'].max()
+    if max_val > 0:
+        df['elo_uncertainty_x_stage_norm'] = (
+            df['elo_uncertainty_x_stage'] / max_val
+        )
+    else:
+        df['elo_uncertainty_x_stage_norm'] = 0.0
+
+    return df
+
+
+def compute_squad_age_profile(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Squad age proxy: older squads underperform expected form in summer tournaments.
+    Uses participation recency as a proxy when squad age data is unavailable.
+    If squad age CSVs added later, replace the proxy with actual avg_age column.
+    """
+    if 'home_avg_age' in df.columns and 'away_avg_age' in df.columns:
+        # Use real squad age data if available
+        OPTIMAL_AGE = 26.5
+        df['home_age_penalty'] = ((df['home_avg_age'] - OPTIMAL_AGE).abs() / 5.0).clip(0, 1)
+        df['away_age_penalty'] = ((df['away_avg_age'] - OPTIMAL_AGE).abs() / 5.0).clip(0, 1)
+    else:
+        # Proxy: teams that appear frequently in the dataset are "experienced squads"
+        home_counts = df['home_team'].map(df['home_team'].value_counts())
+        away_counts = df['away_team'].map(df['away_team'].value_counts())
+        max_count   = max(home_counts.max(), away_counts.max(), 1)
+        df['home_age_penalty'] = 1.0 - (home_counts / max_count).clip(0, 1)
+        df['away_age_penalty'] = 1.0 - (away_counts / max_count).clip(0, 1)
+
+    df['age_profile_diff'] = df['home_age_penalty'] - df['away_age_penalty']
+    return df
