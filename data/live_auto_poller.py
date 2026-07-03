@@ -17,8 +17,8 @@ _poller_thread  = None
 _latest_state   = {}
 
 
-def _headers() -> dict:
-    key = os.getenv("RAPIDAPI_KEY", "")
+def _headers(api_key: str = None) -> dict:
+    key = api_key or os.getenv("RAPIDAPI_KEY", "")
     return {
         "X-RapidAPI-Key":  key,
         "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
@@ -27,7 +27,7 @@ def _headers() -> dict:
 BASE = "https://api-football-v1.p.rapidapi.com/v3"
 
 
-def fetch_all_live_data(fixture_id: int) -> dict:
+def fetch_all_live_data(fixture_id: int, api_key: str = None) -> dict:
     """
     Single function — fetches EVERYTHING for a live fixture:
     score, goals, cards, substitutions, stats, lineups, events.
@@ -86,7 +86,7 @@ def fetch_all_live_data(fixture_id: int) -> dict:
     # ── 1. Fixture overview (score + period) ──────────────────────────────
     try:
         r = requests.get(f"{BASE}/fixtures",
-                         headers=_headers(),
+                         headers=_headers(api_key),
                          params={"id": fixture_id},
                          timeout=10)
         fixtures = r.json().get("response", [])
@@ -123,7 +123,7 @@ def fetch_all_live_data(fixture_id: int) -> dict:
     # ── 2. Statistics (shots, possession, corners, passes, xG) ────────────
     try:
         r = requests.get(f"{BASE}/fixtures/statistics",
-                         headers=_headers(),
+                         headers=_headers(api_key),
                          params={"fixture": fixture_id},
                          timeout=10)
         stats_data = r.json().get("response", [])
@@ -163,7 +163,7 @@ def fetch_all_live_data(fixture_id: int) -> dict:
     # ── 3. Events (goals, cards, substitutions — with timestamps) ─────────
     try:
         r = requests.get(f"{BASE}/fixtures/events",
-                         headers=_headers(),
+                         headers=_headers(api_key),
                          params={"fixture": fixture_id},
                          timeout=10)
         events = r.json().get("response", [])
@@ -209,7 +209,7 @@ def fetch_all_live_data(fixture_id: int) -> dict:
     # ── 4. Lineups (starting XI + formation) ──────────────────────────────
     try:
         r = requests.get(f"{BASE}/fixtures/lineups",
-                         headers=_headers(),
+                         headers=_headers(api_key),
                          params={"fixture": fixture_id},
                          timeout=10)
         lineups = r.json().get("response", [])
@@ -240,7 +240,7 @@ def fetch_all_live_data(fixture_id: int) -> dict:
     return state
 
 
-def start_auto_poller(fixture_id: int, interval: int = 60):
+def start_auto_poller(fixture_id: int, interval: int = 60, api_key: str = None):
     """
     Start background thread that auto-fetches live data every `interval` seconds.
     Stops automatically when match finishes.
@@ -252,7 +252,7 @@ def start_auto_poller(fixture_id: int, interval: int = 60):
         print(f"📡 Auto-poller started for fixture {fixture_id} "
               f"(every {interval}s)")
         while True:
-            state = fetch_all_live_data(fixture_id)
+            state = fetch_all_live_data(fixture_id, api_key)
             _latest_state = state
 
             elapsed = state.get("elapsed", 0)

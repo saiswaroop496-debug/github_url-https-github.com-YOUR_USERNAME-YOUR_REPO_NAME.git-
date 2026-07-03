@@ -148,15 +148,22 @@ if live_mode:
 
     # Start poller on button click
     if fetch_clicked:
-        from data.live_auto_poller import start_auto_poller, get_latest_state
-        start_auto_poller(int(fixture_id_input), interval=60)
+        from data.live_auto_poller import start_auto_poller, fetch_all_live_data
+        with st.spinner("Fetching initial live data (this takes a few seconds)..."):
+            fetch_all_live_data(int(fixture_id_input), api_key=api_key)
+        start_auto_poller(int(fixture_id_input), interval=60, api_key=api_key)
         st.session_state['poller_active'] = True
         st.session_state['fixture_id']    = int(fixture_id_input)
+        st.rerun()
+
+    if stop_clicked:
+        st.session_state['poller_active'] = False
+        st.rerun()
 
     # Auto-refresh using Streamlit rerun
     if auto_refresh and st.session_state.get('poller_active'):
         import time
-        time.sleep(1)
+        time.sleep(10) # 10 seconds is better than 1 second to avoid spamming UI refresh too fast
         st.rerun()
 
     # Load current live state
@@ -314,7 +321,11 @@ if live_mode:
             pc3.metric(f"✈️ {away_name} Win", f"{result['away_win_prob']:.1%}")
 
     else:
-        st.info("Enter a Fixture ID and click ▶ Start Live to begin auto-fetching.")
+        if st.session_state.get('poller_active'):
+            st.error("⚠️ Failed to fetch live data! Please verify your Fixture ID and RapidAPI Key.")
+            st.session_state['poller_active'] = False
+        else:
+            st.info("Enter a Fixture ID and click ▶ Start Live to begin auto-fetching.")
         elapsed = live_hg = live_ag = home_reds = away_reds = None
 else:
     elapsed = live_hg = live_ag = home_reds = away_reds = None
