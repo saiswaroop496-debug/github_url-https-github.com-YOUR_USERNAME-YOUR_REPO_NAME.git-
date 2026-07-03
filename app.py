@@ -228,12 +228,15 @@ if live_mode:
                    f"{live_state['home_subs_left']}-{live_state['away_subs_left']}")
 
         # xG row
-        hxg = live_state.get("home_xg_live", "N/A")
-        axg = live_state.get("away_xg_live", "N/A")
-        if hxg != "N/A" and axg != "N/A":
+        hxg = live_state.get("home_xg_live")
+        axg = live_state.get("away_xg_live")
+        if hxg is not None and axg is not None and hxg != "N/A" and axg != "N/A":
             x1, x2 = st.columns(2)
-            x1.metric(f"{home_name} live xG", f"{float(hxg):.2f}")
-            x2.metric(f"{away_name} live xG", f"{float(axg):.2f}")
+            try:
+                x1.metric(f"{home_name} live xG", f"{float(hxg):.2f}")
+                x2.metric(f"{away_name} live xG", f"{float(axg):.2f}")
+            except (ValueError, TypeError):
+                pass
 
         # ── GOALS TIMELINE ─────────────────────────────────────────────────
         if live_state.get("goals_timeline"):
