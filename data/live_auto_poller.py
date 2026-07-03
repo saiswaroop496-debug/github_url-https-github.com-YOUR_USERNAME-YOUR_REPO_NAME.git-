@@ -32,14 +32,36 @@ def fetch_all_live_data(identifier: str, api_key: str = None) -> dict:
     Routes to ESPN scraper if URL is provided, otherwise falls back to API-Football.
     """
     s_id = str(identifier)
-    if "espn.co" in s_id or "espn.com" in s_id:
+    if "espn" in s_id:
         from data.espn_scraper import fetch_espn_live_data
         import re
+        import requests
+        
         m = re.search(r'(?:gameId/|gameId=)(\d+)', s_id)
         if m:
             return fetch_espn_live_data(m.group(1))
-        else:
-            warnings.warn("Could not extract gameId from ESPN URL")
+        
+        # If no explicit gameId, check the scoreboard API for a live match
+        try:
+            r = requests.get("http://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard", timeout=10)
+            events = r.json().get("events", [])
+            if not events:
+                warnings.warn("No matches found on ESPN scoreboard.")
+                return {}
+            
+            # 1. Prefer LIVE match
+            live = next((e for e in events if e.get("status", {}).get("type", {}).get("state") == "in"), None)
+            if live: return fetch_espn_live_data(live["id"])
+            
+            # 2. Prefer Upcoming match
+            upcoming = next((e for e in events if e.get("status", {}).get("type", {}).get("state") == "pre"), None)
+            if upcoming: return fetch_espn_live_data(upcoming["id"])
+            
+            # 3. Fallback to latest finished match
+            return fetch_espn_live_data(events[0]["id"])
+            
+        except Exception as e:
+            warnings.warn(f"Failed to resolve ESPN tournament URL: {e}")
             return {}
             
     # Fallback to API-Football

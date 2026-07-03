@@ -135,9 +135,9 @@ if live_mode:
     st.sidebar.markdown("### 📡 Live Match Auto-Fetch")
 
     fixture_id_input = st.sidebar.text_input(
-        "ESPN URL or Fixture ID",
-        value="https://www.espn.co.uk/football/match/_/gameId/760498",
-        help="Paste an ESPN Match URL (free) or API-Football Fixture ID"
+        "ESPN Tournament URL, Match URL, or Fixture ID",
+        value="https://www.espn.in/football/worldcup/",
+        help="Paste an ESPN Tournament URL, Match URL (free), or API-Football Fixture ID"
     )
 
     auto_refresh = st.sidebar.toggle("🔄 Auto-refresh (60s)", value=True)
