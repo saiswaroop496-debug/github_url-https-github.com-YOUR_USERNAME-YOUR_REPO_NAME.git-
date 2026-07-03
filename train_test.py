@@ -208,7 +208,8 @@ def main():
     df = glicko.compute_ratings(df)
 
     print("[FEATURES]  Computing V6 & Institutional features ...")
-    from features.rolling_features import compute_v6_features, add_injury_features, add_movement_features, add_institutional_signals
+    from features.rolling_features import compute_v6_features, add_injury_features, add_movement_features
+    from features.institutional_signals import add_institutional_signals
     df = compute_v6_features(df)
     df = add_injury_features(df)
     df = add_movement_features(df)
@@ -589,6 +590,45 @@ def main():
     print(f"\n{'='*70}")
     print(f"  COMPLETED IN {elapsed:.1f}s")
     print(f"{'='*70}")
+
+    def report_v74_validation(fold_results: list, feature_cols: list, model):
+        import numpy as np
+
+        V73_BASELINE_ACC  = 0.446
+        V73_BASELINE_LL   = 1.0668
+
+        accs = [r['accuracy'] for r in fold_results]
+        lls  = [r['log_loss'] for r in fold_results]
+
+        print("\n" + "="*50)
+        print("  V7.4 Walk-Forward Validation Results")
+        print("="*50)
+        print(f"  Accuracy:  {np.mean(accs):.3f} ± {np.std(accs):.3f}"
+              f"  (V7.3: {V73_BASELINE_ACC:.3f}  Δ: {np.mean(accs)-V73_BASELINE_ACC:+.3f})")
+        print(f"  Log-Loss:  {np.mean(lls):.3f} ± {np.std(lls):.3f}"
+              f"  (V7.3: {V73_BASELINE_LL:.3f}  Δ: {np.mean(lls)-V73_BASELINE_LL:+.3f})")
+
+        # Feature importance for new signals
+        if hasattr(model, 'feature_importances_'):
+            imp = dict(zip(feature_cols, model.feature_importances_))
+            new_signals = [
+                'tournament_momentum_diff', 'glicko_velocity_diff',
+                'conversion_diff', 'defensive_shape_diff', 'lineup_continuity_diff'
+            ]
+            print("\n  New Signal Importances (XGBoost gain):")
+            for sig in new_signals:
+                score = imp.get(sig, 0.0)
+                bar   = "█" * int(score * 200)
+                print(f"    {sig:30}: {score:.4f}  {bar}")
+
+            new_scores = [imp.get(s, 0) for s in new_signals]
+            if max(new_scores) < 0.01:
+                print("\n  ⚠️  WARNING: All new signals show near-zero importance.")
+                print("      Likely cause: NaN fill values creating uniform columns.")
+                print("      Fix: Check null rates above. Ensure rolling windows have ≥3 data points.")
+        print("="*50)
+
+    report_v74_validation(fold_results, selected_cols_fold, meta_lr)
 
     # Populate this from your actual walk-forward output
     real_accuracy = np.mean(accs)    # 43.4%
