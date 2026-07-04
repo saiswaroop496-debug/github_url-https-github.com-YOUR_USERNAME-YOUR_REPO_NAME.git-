@@ -633,7 +633,6 @@ def run_inference(home_team: str, away_team: str,
         result["draw_prob"] = result.get("draw", 0.0)
         result["away_win_prob"] = result.get("away_win", 0.0)
         
-        result["conformal_set"] = _apply_conformal_prediction([result["home_win_prob"], result["draw_prob"], result["away_win_prob"]])
 
         result["mc_params"] = {
             "lam_h": lam_h,
