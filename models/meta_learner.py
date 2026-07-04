@@ -11,8 +11,15 @@ try:
     from imblearn.over_sampling import SMOTE
     SMOTE_AVAILABLE = True
 except ImportError:
-    SMOTE_AVAILABLE = False
-    warnings.warn("imbalanced-learn not installed. SMOTE disabled.")
+    import os
+    print("imbalanced-learn not found in meta_learner. Attempting dynamic install...")
+    os.system("pip install imbalanced-learn==0.11.0")
+    try:
+        from imblearn.over_sampling import SMOTE
+        SMOTE_AVAILABLE = True
+    except ImportError:
+        SMOTE_AVAILABLE = False
+        warnings.warn("imbalanced-learn not installed. SMOTE disabled.")
 
 try:
     from xgboost import XGBClassifier
