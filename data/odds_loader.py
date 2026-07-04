@@ -53,7 +53,7 @@ def map_team_name(name, valid_names):
 def load_football_data_csv(filepath: str) -> pd.DataFrame:
     df = pd.read_csv(filepath)
 
-    # 1. Look for Closing Odds first (AvgC, B365C, PSC)
+    # 1. Look for Closing Odds first (AvgC, B365C, PSC) for no-vig baseline
     h_col = next((c for c in ['AvgCH', 'B365CH', 'PSCH'] if c in df.columns), None)
     d_col = next((c for c in ['AvgCD', 'B365CD', 'PSCD'] if c in df.columns), None)
     a_col = next((c for c in ['AvgCA', 'B365CA', 'PSCA'] if c in df.columns), None)
@@ -68,7 +68,7 @@ def load_football_data_csv(filepath: str) -> pd.DataFrame:
         warnings.warn(f"Missing odds columns in {filepath}. Cannot compute no-vig probs.")
         return df
 
-    # Remove overround
+    # Remove overround for the feature baseline
     raw_h = 1 / df[h_col].clip(1.01)
     raw_d = 1 / df[d_col].clip(1.01)
     raw_a = 1 / df[a_col].clip(1.01)
@@ -78,6 +78,22 @@ def load_football_data_csv(filepath: str) -> pd.DataFrame:
     df['novig_draw']    = raw_d / overround
     df['novig_away']    = raw_a / overround
     df['overround_pct'] = (overround - 1) * 100
+
+    # 3. Extract Best Available Market Odds for Arbitrage
+    # Common bookies in football-data.co.uk: B365, PS (Pinnacle), WH (William Hill), VC (BetVictor), BW (Betway), IW (Interwetten)
+    h_cols_all = [c for c in df.columns if c in ['B365H', 'PSH', 'WHH', 'VCH', 'BWH', 'IWH', 'AvgH', 'B365CH', 'PSCH', 'WHCH', 'VCCH', 'BWCH', 'IWCH', 'AvgCH']]
+    d_cols_all = [c for c in df.columns if c in ['B365D', 'PSD', 'WHD', 'VCD', 'BWD', 'IWD', 'AvgD', 'B365CD', 'PSCD', 'WHCD', 'VCCD', 'BWCD', 'IWCD', 'AvgCD']]
+    a_cols_all = [c for c in df.columns if c in ['B365A', 'PSA', 'WHA', 'VCA', 'BWA', 'IWA', 'AvgA', 'B365CA', 'PSCA', 'WHCA', 'VCCA', 'BWCA', 'IWCA', 'AvgCA']]
+
+    if h_cols_all and d_cols_all and a_cols_all:
+        df['max_h'] = df[h_cols_all].max(axis=1)
+        df['max_d'] = df[d_cols_all].max(axis=1)
+        df['max_a'] = df[a_cols_all].max(axis=1)
+    else:
+        # Fallback if specific bookie columns are missing
+        df['max_h'] = df[h_col]
+        df['max_d'] = df[d_col]
+        df['max_a'] = df[a_col]
 
     col_map = {
         'Date':     ['Date', 'date'],
@@ -118,6 +134,9 @@ def enrich_dataset_with_odds(df: pd.DataFrame) -> pd.DataFrame:
         df['novig_draw']    = np.nan
         df['novig_away']    = np.nan
         df['overround_pct'] = np.nan
+        df['max_h']         = np.nan
+        df['max_d']         = np.nan
+        df['max_a']         = np.nan
         return df
 
     valid_names = set(df['home_team'].str.strip().str.title().unique()) | set(df['away_team'].str.strip().str.title().unique())
@@ -131,7 +150,7 @@ def enrich_dataset_with_odds(df: pd.DataFrame) -> pd.DataFrame:
     df_copy['away_team_norm'] = df_copy['away_team'].str.strip().str.title()
 
     merged = df_copy.merge(
-        odds_df[['HomeTeamNorm', 'AwayTeamNorm', 'novig_home', 'novig_draw', 'novig_away', 'overround_pct']],
+        odds_df[['HomeTeamNorm', 'AwayTeamNorm', 'novig_home', 'novig_draw', 'novig_away', 'overround_pct', 'max_h', 'max_d', 'max_a']],
         left_on=['home_team_norm', 'away_team_norm'],
         right_on=['HomeTeamNorm', 'AwayTeamNorm'],
         how='left'

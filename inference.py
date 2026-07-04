@@ -336,10 +336,15 @@ def _dc_predict(home_team: str, away_team: str, venue_factor: float):
     try:
         from models.poisson_dixon_coles import score_probability_matrix, outcome_probs, extract_btts_ou
 
+        # Get dynamic rho from cached model
+        try:
+            rho = float(_dc_params.get('rho', 0.0))
+        except:
+            rho = 0.0
+
         attack   = _dc_params["attack"]
         defense  = _dc_params["defense"]
         home_adv = _dc_params["home_adv"]
-        rho      = _dc_params["rho"]
 
         if home_team not in attack or away_team not in attack:
             return None
@@ -581,7 +586,12 @@ def run_inference(home_team: str, away_team: str,
         attack   = _dc_params.get("attack", {})
         defense  = _dc_params.get("defense", {})
         home_adv = _dc_params.get("home_adv", 0.3)
-        rho      = _dc_params.get("rho", -0.13)
+        
+        # Load dynamic rho properly
+        try:
+            rho = float(_dc_params.get("rho", 0.0))
+        except:
+            rho = 0.0
         
         if home_team in attack and away_team in attack:
             eff_ha = home_adv * venue_factor
@@ -615,6 +625,14 @@ def run_inference(home_team: str, away_team: str,
         result["draw_prob"] = result.get("draw", 0.0)
         result["away_win_prob"] = result.get("away_win", 0.0)
         
+        result["conformal_set"] = _apply_conformal_prediction([result["home_win_prob"], result["draw_prob"], result["away_win_prob"]])
+
+        result["mc_params"] = {
+            "lam_h": lam_h,
+            "lam_a": lam_a,
+            "rho": rho
+        }
+
         if "final_pick" not in result:
             probs = [result["home_win_prob"], result["draw_prob"], result["away_win_prob"]]
             result["final_pick"] = ["Home Win", "Draw", "Away Win"][int(np.argmax(probs))]
@@ -710,6 +728,28 @@ def run_inference(home_team: str, away_team: str,
         result["ir_multiplier"] = betting.get("ir_multiplier")
         result["all_edges"] = betting.get("all_edges")
 
+        # ── STATISTICAL ARBITRAGE (JANE STREET STYLE) ──
+        try:
+            from features.arbitrage_scanner import calculate_kelly_stake
+            
+            implied = (1 / home_odds) + (1 / draw_odds) + (1 / away_odds)
+            result["pure_arb_implied"] = round(implied, 4)
+            result["is_pure_arb"] = implied < 1.0
+            if result["is_pure_arb"]:
+                result["pure_arb_roi"] = round(((1 / implied) - 1) * 100, 2)
+            
+            # Stat Arb (Quarter-Kelly) based on 1000 bankroll
+            result["stat_arb"] = {
+                "edge_h": round(result["home_win_prob"] - (1/home_odds), 4),
+                "edge_d": round(result["draw_prob"] - (1/draw_odds), 4),
+                "edge_a": round(result["away_win_prob"] - (1/away_odds), 4),
+                "stake_h": round(calculate_kelly_stake(result["home_win_prob"], home_odds, 1000.0), 2),
+                "stake_d": round(calculate_kelly_stake(result["draw_prob"], draw_odds, 1000.0), 2),
+                "stake_a": round(calculate_kelly_stake(result["away_win_prob"], away_odds, 1000.0), 2),
+            }
+        except Exception as e:
+            warnings.warn(f"Arbitrage scanner failed: {e}")
+
     # Apply Conformal Prediction Sets
     try:
         from models.conformal import ConformalPredictor
@@ -727,5 +767,11 @@ def run_inference(home_team: str, away_team: str,
         result["simulation"] = sim_result
     except Exception as e:
         warnings.warn(f"Simulation failed: {e}")
+
+    result["mc_params"] = {
+        "lam_h": lam_h,
+        "lam_a": lam_a,
+        "rho": rho
+    }
 
     return result
