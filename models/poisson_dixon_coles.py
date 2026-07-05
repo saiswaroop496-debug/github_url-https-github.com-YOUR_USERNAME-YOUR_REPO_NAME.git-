@@ -80,10 +80,14 @@ def fit_dixon_coles_nb(df, dates=None, xi: float = 0.0065,
 
     # Time decay weights
     if dates is not None:
-        T        = np.max(dates)
-        days_ago = (T - dates).astype(float)
-        weights  = np.exp(-xi * days_ago)
-        weights /= weights.sum() / len(weights)
+        from models.base_learners import compute_match_weights
+        tournaments = df['tournament'] if 'tournament' in df.columns else None
+        
+        # We need pandas Series for the new compute_match_weights, dates in fit_dixon_coles_nb 
+        # is currently passed as a numpy array in train_test.py (dates.values). We should convert it to Series.
+        import pandas as pd
+        dates_series = pd.Series(dates)
+        weights = compute_match_weights(dates_series, tournaments, xi=xi)
     else:
         weights = np.ones(len(home_goals))
 

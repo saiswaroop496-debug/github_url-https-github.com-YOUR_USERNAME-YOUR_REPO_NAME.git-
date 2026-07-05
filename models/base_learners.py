@@ -48,13 +48,40 @@ class PurgedTimeSeriesSplit:
                 
             yield indices[:train_end], indices[test_start:test_end]
 
-def compute_match_weights(dates: pd.Series, xi: float = 0.003) -> np.ndarray:
+def compute_match_weights(dates: pd.Series, tournaments: pd.Series = None, xi: float = 0.001) -> np.ndarray:
     """
-    Exponential time-decay: w(t) = exp(-xi * days_ago)
+    Hybrid Time & Stakes Weighting: 
+    w(t) = exp(-xi * days_ago) * M_time * M_stakes
     """
     latest = pd.to_datetime(dates).max()
     days_ago = (latest - pd.to_datetime(dates)).dt.days.values
-    weights = np.exp(-xi * days_ago)
+    
+    # 1. Base Exponential Decay (slower base decay to prevent sudden cliffs)
+    base_weights = np.exp(-xi * days_ago)
+    
+    # 2. Time Hierarchy Multiplier
+    m_time = np.select(
+        [days_ago <= 90, days_ago <= 365, days_ago <= 730],
+        [2.0, 1.0, 0.5],
+        default=0.15  # > 2 years
+    )
+    
+    # 3. Tournament Stakes Multiplier
+    if tournaments is not None:
+        tournaments = tournaments.astype(str)
+        is_wc = tournaments.str.contains('FIFA World Cup', case=False, na=False)
+        is_major = tournaments.str.contains('Euro|Copa America|Asian Cup|Africa Cup of Nations|CONCACAF Gold Cup', case=False, na=False)
+        is_friendly = tournaments.str.contains('Friendly', case=False, na=False)
+        
+        m_stakes = np.select(
+            [is_wc, is_major, is_friendly],
+            [2.5, 1.5, 0.5],
+            default=1.0  # Qualifiers, minor cups
+        )
+    else:
+        m_stakes = np.ones_like(m_time)
+        
+    weights = base_weights * m_time * m_stakes
     return weights / weights.sum() * len(weights)
 
 class BaseLearnerStack:
@@ -63,14 +90,14 @@ class BaseLearnerStack:
         self.xgb = XGBRegressor(max_depth=3, min_child_weight=10, reg_lambda=12.0, n_estimators=200, learning_rate=0.04, subsample=0.8, colsample_bytree=0.7, random_state=42, verbosity=0)
         self.ridge = Ridge(alpha=15.0)
         
-    def generate_oof(self, X, y_home, y_away, dates):
+    def generate_oof(self, X, y_home, y_away, dates, tournaments=None):
         cv = PurgedTimeSeriesSplit(n_splits=5, embargo_gap=4)
         
         oof_home = np.zeros(len(X))
         oof_away = np.zeros(len(X))
         counts = np.zeros(len(X))
         
-        weights = compute_match_weights(dates)
+        weights = compute_match_weights(dates, tournaments)
         
         for train_idx, test_idx in cv.split(X):
             X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]

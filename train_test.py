@@ -132,7 +132,7 @@ def compute_alpha_target(df: pd.DataFrame) -> pd.DataFrame:
     Requires historical odds columns (novig_home, novig_draw, novig_away).
     If odds not available, fills with NaN — ready for when you add the data.
     """
-    if 'novig_home' in df.columns:
+    if 'novig_home' in df.columns and 'result' in df.columns:
         # True alpha: binary outcome minus market probability
         df['alpha_home'] = (df['result'] == 'Home Win').astype(float) - df['novig_home']
         df['alpha_draw'] = (df['result'] == 'Draw').astype(float)     - df['novig_draw']
@@ -142,7 +142,7 @@ def compute_alpha_target(df: pd.DataFrame) -> pd.DataFrame:
         df['alpha_home'] = np.nan
         df['alpha_draw'] = np.nan
         df['alpha_away'] = np.nan
-        print("  ℹ️  Alpha targets: NaN (no historical odds — drop CSVs into data/ to activate)")
+        print("  [INFO] Alpha targets: NaN (no historical odds or result column missing)")
     return df
 
 
@@ -216,7 +216,7 @@ def load_optuna_params() -> dict:
         return defaults
     with open(OPTUNA_PARAMS_PATH) as f:
         optuna_params = json.load(f)
-    print(f"  ✅ Loaded Optuna params from {OPTUNA_PARAMS_PATH}")
+    print(f"  [OK] Loaded Optuna params from {OPTUNA_PARAMS_PATH}")
     return optuna_params
 
 # =====================================================================
@@ -456,7 +456,8 @@ def main():
         y_train_out = y_outcome[train_idx]
     
         dates_train = df['date'].iloc[train_idx]
-        w_train = np.asarray(compute_match_weights(dates_train))
+        tournaments_train = df['tournament'].iloc[train_idx] if 'tournament' in df.columns else None
+        w_train = np.asarray(compute_match_weights(dates_train, tournaments_train))
 
         print(f"\n  --- Fold {fold_idx+1} ---  train={len(train_idx)}, test={len(test_idx)}")
         

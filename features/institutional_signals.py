@@ -41,7 +41,7 @@ def add_institutional_signals(df: pd.DataFrame) -> pd.DataFrame:
 
         null_after = df[col].isna().sum()
         coverage   = 1 - (null_after / len(df))
-        print(f"  {col}: {null_before} nulls → {null_after} | coverage {coverage:.1%}")
+        print(f"  {col}: {null_before} nulls -> {null_after} | coverage {coverage:.1%}")
 
     return df
 
