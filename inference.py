@@ -39,7 +39,7 @@ except ImportError as _e:
         from models.meta_learner import SafeSMOTE as _SafeSMOTE  # noqa: F401
         from models.temperature_scaler import TemperatureScaler as _TemperatureScaler # noqa: F401
     except ImportError as _e2:
-        # Inject a mock so joblib.load() can successfully unpickle the object without scary warnings
+        pass # Inject a mock so joblib.load() can successfully unpickle the object without scary warnings
     import types
     from sklearn.pipeline import Pipeline
     imb = types.ModuleType('imblearn')
