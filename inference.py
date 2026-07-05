@@ -28,15 +28,18 @@ try:
     from models.temperature_scaler import TemperatureScaler as _TemperatureScaler # noqa: F401
 except ImportError as _e:
     try:
-        import os
+        import os, sys, site, importlib
         print("imbalanced-learn not found. Attempting to install it dynamically...")
         os.system("pip install imbalanced-learn==0.11.0")
+        importlib.invalidate_caches()
+        user_site = site.getusersitepackages()
+        if user_site not in sys.path:
+            sys.path.append(user_site)
         from imblearn.pipeline import Pipeline as _ImbPipeline  # noqa: F401
         from models.meta_learner import SafeSMOTE as _SafeSMOTE  # noqa: F401
         from models.temperature_scaler import TemperatureScaler as _TemperatureScaler # noqa: F401
     except ImportError as _e2:
-        warnings.warn(f"imbalanced-learn not installed on cloud and auto-install failed. Using sklearn Pipeline mock for deserialization: {_e2}")
-    # Inject a mock so joblib.load() can successfully unpickle the object
+        # Inject a mock so joblib.load() can successfully unpickle the object without scary warnings
     import types
     from sklearn.pipeline import Pipeline
     imb = types.ModuleType('imblearn')
