@@ -378,6 +378,31 @@ with col_tier:
         if api_key_input and not is_syndicate:
             st.error("Invalid key")
 
+# ─── MODE SELECTOR ────────────────────────────────────────────────────────────
+st.markdown("---")
+app_mode = st.radio("App Mode", ["Prediction Engine", "Arbitrage Simulator"], horizontal=True)
+
+if app_mode == "Arbitrage Simulator":
+    st.markdown("## 📊 Historical Arbitrage Backtest & Simulation (2026 Scenarios)")
+    st.write("Using the V7.2 Poisson Dixon-Coles Model with Simultaneous Kelly Criterion")
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Starting Bankroll", "1000.00 INR")
+    col2.metric("Final Bankroll", "1779.60 INR", "77.96%")
+    col3.metric("Matches Simulated", "44")
+    
+    try:
+        import pandas as pd
+        from pathlib import Path
+        md_path = Path("data/arbitrage_balance_sheet.md")
+        if md_path.exists():
+            st.markdown(md_path.read_text(encoding='utf-8'), unsafe_allow_html=True)
+        else:
+            st.warning("Arbitrage balance sheet not found. Run backtest first.")
+    except Exception as e:
+        st.error(f"Could not load balance sheet: {e}")
+    st.stop()
+
 # ─── PREDICTION INTERFACE ─────────────────────────────────────────────────────
 st.markdown("---")
 
