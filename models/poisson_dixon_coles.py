@@ -95,7 +95,7 @@ def fit_dixon_coles_nb(df, dates=None, xi: float = 0.0065,
     if r is None:
         all_goals = np.concatenate([home_goals, away_goals])
         r = estimate_overdispersion(all_goals)
-        print(f"  NB overdispersion r={r:.2f} (Poisson would assume r→∞)")
+        print(f"  NB overdispersion r={r:.2f} (Poisson would assume r -> infinity)")
 
     # Pre-map indices for vectorization
     h_idx = np.array([team_idx[t] for t in home_teams])
