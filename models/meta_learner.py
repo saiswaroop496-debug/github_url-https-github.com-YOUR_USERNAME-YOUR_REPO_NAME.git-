@@ -1,27 +1,45 @@
 import numpy as np
-import tensorflow as tf
-import tensorflow_probability as tfp
+import numpy as np
 
-tfd = tfp.distributions
-tfpl = tfp.layers
+# Dummy SafeSMOTE to allow old models to unpickle cleanly during inference
+class SafeSMOTE:
+    def __init__(self, *args, **kwargs):
+        pass
+    def fit_resample(self, X, y):
+        return X, y
+    def transform(self, X):
+        return X
 
-def prior_fn(kernel_size, bias_size, dtype=None):
-    n = kernel_size + bias_size
-    return tf.keras.Sequential([
-        tfpl.DistributionLambda(
-            lambda t: tfd.Independent(
-                tfd.Normal(loc=tf.zeros(n, dtype=dtype), scale=1.0),
-                reinterpreted_batch_ndims=1
+try:
+    import tensorflow as tf
+    import tensorflow_probability as tfp
+    tfd = tfp.distributions
+    tfpl = tfp.layers
+
+    def prior_fn(kernel_size, bias_size, dtype=None):
+        n = kernel_size + bias_size
+        return tf.keras.Sequential([
+            tfpl.DistributionLambda(
+                lambda t: tfd.Independent(
+                    tfd.Normal(loc=tf.zeros(n, dtype=dtype), scale=1.0),
+                    reinterpreted_batch_ndims=1
+                )
             )
-        )
-    ])
+        ])
 
-def posterior_fn(kernel_size, bias_size, dtype=None):
-    n = kernel_size + bias_size
-    return tf.keras.Sequential([
-        tfpl.VariableLayer(tfpl.IndependentNormal.params_size(n), dtype=dtype),
-        tfpl.IndependentNormal(n)
-    ])
+    def posterior_fn(kernel_size, bias_size, dtype=None):
+        n = kernel_size + bias_size
+        return tf.keras.Sequential([
+            tfpl.VariableLayer(tfpl.IndependentNormal.params_size(n), dtype=dtype),
+            tfpl.IndependentNormal(n)
+        ])
+    
+    TF_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    TF_AVAILABLE = False
+    tf = None
+    tfpl = None
+    tfd = None
 
 class BNNMetaLearner:
     """
@@ -33,9 +51,9 @@ class BNNMetaLearner:
         self.hidden_units = hidden_units
         self.kl_weight = 1.0 / max(1, num_train_samples)
         self.classes_ = ['Home Win', 'Draw', 'Away Win']
-        self.model = self._build_model()
+        self.model = self._build_model() if TF_AVAILABLE else None
         
-    def _build_model(self) -> tf.keras.Model:
+    def _build_model(self):
         layers = [tf.keras.layers.InputLayer(input_shape=(self.input_dim,))]
         for units in self.hidden_units:
             layers.append(
