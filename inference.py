@@ -131,6 +131,10 @@ def _get_team_state(team_name: str) -> dict:
     Tries exact match first, then case-insensitive fuzzy match.
     Returns safe defaults if team not found (logs warning).
     """
+    aliases = {"united states": "USA"}
+    if team_name.lower() in aliases:
+        team_name = aliases[team_name.lower()]
+
     # Exact match
     if team_name in _team_states:
         return _team_states[team_name]
@@ -738,9 +742,9 @@ def run_inference(home_team: str, away_team: str,
         result["ir_multiplier"] = betting.get("ir_multiplier")
         result["all_edges"] = betting.get("all_edges")
 
-        # ── STATISTICAL ARBITRAGE (JANE STREET STYLE) ──
+        # ── STATISTICAL ARBITRAGE (BLACK-LITTERMAN) ──
         try:
-            from features.arbitrage_scanner import calculate_kelly_stake
+            from features.arbitrage_scanner import BlackLittermanModel
             
             implied = (1 / home_odds) + (1 / draw_odds) + (1 / away_odds)
             result["pure_arb_implied"] = round(implied, 4)
@@ -748,17 +752,40 @@ def run_inference(home_team: str, away_team: str,
             if result["is_pure_arb"]:
                 result["pure_arb_roi"] = round(((1 / implied) - 1) * 100, 2)
             
-            # Stat Arb (Quarter-Kelly) based on 1000 bankroll
+            # V8 Black-Litterman based on 1000 bankroll
+            bnn_probs = np.array([result["home_win_prob"], result["draw_prob"], result["away_win_prob"]])
+            odds_arr = np.array([home_odds, draw_odds, away_odds])
+            mkt_probs = 1 / odds_arr
+            mkt_probs = mkt_probs / np.sum(mkt_probs)
+            
+            cov = np.zeros((3, 3))
+            for j in range(3):
+                for k in range(3):
+                    if j == k:
+                        cov[j, k] = mkt_probs[j] * (1 - mkt_probs[j])
+                    else:
+                        cov[j, k] = -mkt_probs[j] * mkt_probs[k]
+                        
+            bl = BlackLittermanModel(mkt_probs, bnn_probs, odds_arr, cov)
+            mu_bl, cov_bl = bl.compute_posterior()
+            weights = bl.maximize_sharpe(mu_bl, cov_bl)
+            
+            total_w = np.sum(weights)
+            if total_w > 0.05:
+                weights = weights * (0.05 / total_w)
+                
+            stakes = weights * 1000.0
+            
             result["stat_arb"] = {
                 "edge_h": round(result["home_win_prob"] - (1/home_odds), 4),
                 "edge_d": round(result["draw_prob"] - (1/draw_odds), 4),
                 "edge_a": round(result["away_win_prob"] - (1/away_odds), 4),
-                "stake_h": round(calculate_kelly_stake(result["home_win_prob"], home_odds, 1000.0), 2),
-                "stake_d": round(calculate_kelly_stake(result["draw_prob"], draw_odds, 1000.0), 2),
-                "stake_a": round(calculate_kelly_stake(result["away_win_prob"], away_odds, 1000.0), 2),
+                "stake_h": round(stakes[0], 2),
+                "stake_d": round(stakes[1], 2),
+                "stake_a": round(stakes[2], 2),
             }
         except Exception as e:
-            warnings.warn(f"Arbitrage scanner failed: {e}")
+            warnings.warn(f"Black-Litterman arbitrage scanner failed: {e}")
 
     # Apply Conformal Prediction Sets
     try:

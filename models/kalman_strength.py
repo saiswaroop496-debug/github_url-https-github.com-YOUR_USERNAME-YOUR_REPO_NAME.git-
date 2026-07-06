@@ -1,63 +1,58 @@
 """
-Kalman Filter for dynamic team strength estimation.
-Converts Jane Street's real-time signal tracking to football team quality.
+Particle Filter for dynamic team strength estimation.
+Replaces Kalman Filter to handle non-Gaussian regime shifts (e.g. injuries).
 
-State vector: [team_strength, strength_velocity]
+State vector: [team_strength] (velocity is implicitly tracked via finite differences)
 Observation:  match result xG differential (noisy measurement of true strength)
 """
 import numpy as np
-from dataclasses import dataclass, field
-from typing import Dict
+import scipy.stats as stats
+from filterpy.monte_carlo import systematic_resample
+from typing import Dict, Tuple
 
-@dataclass
-class KalmanTeamState:
-    strength:    float = 1500.0   # estimated true strength (like Glicko)
-    velocity:    float = 0.0      # rate of change (improving/declining)
-    P: np.ndarray = field(default_factory=lambda: np.eye(2) * 100)
-    # P = error covariance matrix
+class TrueStrengthParticleFilter:
+    def __init__(self, num_particles: int = 2000, initial_strength: float = 1500.0,
+                 initial_std: float = 50.0, shock_scale: float = 5.0, obs_std: float = 25.0):
+        self.num_particles = num_particles
+        self.particles = np.random.normal(initial_strength, initial_std, num_particles)
+        self.weights = np.ones(num_particles) / num_particles
+        self.shock_scale = shock_scale
+        self.obs_std = obs_std
+        self.last_mean = initial_strength
 
-# System matrices
-F = np.array([[1, 1],   # State transition: strength evolves, velocity persists
-              [0, 1]])
-H = np.array([[1, 0]])  # Observation: we observe strength, not velocity
-Q = np.array([[1, 0],   # Process noise: strength changes slowly
-              [0, 0.1]])
-R = np.array([[50.0]])  # Observation noise: match results are noisy
+    def predict(self) -> None:
+        shocks = stats.cauchy.rvs(loc=0, scale=self.shock_scale, size=self.num_particles)
+        self.particles += shocks
 
-def kalman_update(state: KalmanTeamState,
-                   observed_strength: float) -> KalmanTeamState:
-    """
-    Update team strength estimate after one observation (match result).
-    observed_strength: derived from xG differential in the match.
-    """
-    x = np.array([[state.strength], [state.velocity]])
-    P = state.P
+    def update(self, z: float) -> None:
+        likelihood = stats.norm.pdf(z, loc=self.particles, scale=self.obs_std)
+        self.weights *= likelihood
+        self.weights += 1e-300
+        self.weights /= np.sum(self.weights)
 
-    # Predict
-    x_pred = F @ x
-    P_pred  = F @ P @ F.T + Q
+    def resample(self) -> None:
+        ess = 1.0 / np.sum(np.square(self.weights))
+        if ess < self.num_particles / 2.0:
+            indexes = systematic_resample(self.weights)
+            self.particles = self.particles[indexes]
+            self.weights = np.ones(self.num_particles) / self.num_particles
 
-    # Innovation (difference between observation and prediction)
-    z = np.array([[observed_strength]])
-    y = z - H @ x_pred
+    def estimate(self) -> Tuple[float, float]:
+        mean = np.average(self.particles, weights=self.weights)
+        var = np.average((self.particles - mean) ** 2, weights=self.weights)
+        return mean, var
 
-    # Kalman gain
-    S = H @ P_pred @ H.T + R
-    K = P_pred @ H.T @ np.linalg.inv(S)
+    def step(self, z: float) -> Tuple[float, float]:
+        self.last_mean, _ = self.estimate()
+        self.predict()
+        self.update(z)
+        self.resample()
+        return self.estimate()
 
-    # Update
-    x_new = x_pred + K @ y
-    P_new  = (np.eye(2) - K @ H) @ P_pred
-
-    return KalmanTeamState(
-        strength = float(x_new[0, 0]),
-        velocity = float(x_new[1, 0]),
-        P        = P_new
-    )
 
 def xg_to_strength_observation(home_xg: float, away_xg: float,
-                                 team: str, home_team: str,
-                                 opponent_strength: float) -> float:
+                               team: str, home_team: str,
+                               opponent_strength: float) -> float:
     """
     Convert match xG to a strength observation.
     If team was home: observation = opp_strength + (home_xg - away_xg) * 100
@@ -68,36 +63,51 @@ def xg_to_strength_observation(home_xg: float, away_xg: float,
     else:
         return opponent_strength - xg_diff * 100
 
+
 class KalmanRatingSystem:
-    """Drop-in replacement for Glicko-2 with continuous Kalman updating."""
-
+    """
+    Drop-in replacement for the Kalman filter, now using Particle Filters internally.
+    Keeps the same class name for backward compatibility with rolling_features.py.
+    """
     def __init__(self):
-        self.states: Dict[str, KalmanTeamState] = {}
+        self.states: Dict[str, TrueStrengthParticleFilter] = {}
 
-    def get_or_init(self, team: str) -> KalmanTeamState:
+    def get_or_init(self, team: str) -> TrueStrengthParticleFilter:
         if team not in self.states:
-            self.states[team] = KalmanTeamState()
+            self.states[team] = TrueStrengthParticleFilter(
+                num_particles=2000, 
+                initial_strength=1500.0, 
+                initial_std=50.0, 
+                shock_scale=5.0, 
+                obs_std=25.0
+            )
         return self.states[team]
 
-    def update_match(self, home_team: str, away_team: str,
-                      home_xg: float, away_xg: float):
+    def update_match(self, home_team: str, away_team: str, home_xg: float, away_xg: float):
         """Update both teams after a match using xG as observation."""
-        h_str = self.get_strength(home_team)
-        a_str = self.get_strength(away_team)
+        h_pf = self.get_or_init(home_team)
+        a_pf = self.get_or_init(away_team)
 
-        # Observation for each team
+        h_str, _ = h_pf.estimate()
+        a_str, _ = a_pf.estimate()
+
         h_obs = xg_to_strength_observation(home_xg, away_xg, home_team, home_team, opponent_strength=a_str)
         a_obs = xg_to_strength_observation(home_xg, away_xg, away_team, home_team, opponent_strength=h_str)
 
-        self.states[home_team] = kalman_update(self.get_or_init(home_team), h_obs)
-        self.states[away_team] = kalman_update(self.get_or_init(away_team), a_obs)
+        h_pf.step(h_obs)
+        a_pf.step(a_obs)
 
     def get_strength(self, team: str) -> float:
-        return self.get_or_init(team).strength
+        mean, _ = self.get_or_init(team).estimate()
+        return float(mean)
 
     def get_velocity(self, team: str) -> float:
-        """Positive velocity = improving team. Powerful feature for upsets."""
-        return self.get_or_init(team).velocity
+        """Estimate velocity as the finite difference of the PF mean."""
+        pf = self.get_or_init(team)
+        mean, _ = pf.estimate()
+        return float(mean - pf.last_mean)
         
     def get_uncertainty(self, team: str) -> float:
-        return float(self.get_or_init(team).P[0, 0])
+        """Returns the variance of the particle distribution."""
+        _, var = self.get_or_init(team).estimate()
+        return float(var)

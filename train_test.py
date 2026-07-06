@@ -251,7 +251,8 @@ def main():
     print("[FEATURES]  Computing V6 & Institutional features ...")
     from features.rolling_features import (
         compute_v6_features, add_injury_features, add_movement_features,
-        compute_pressure_index, compute_elo_uncertainty_feature, compute_squad_age_profile
+        compute_pressure_index, compute_elo_uncertainty_feature, compute_squad_age_profile,
+        add_gnn_xt_features
     )
     from features.institutional_signals import add_institutional_signals
     from data.odds_loader import enrich_dataset_with_odds
@@ -259,6 +260,7 @@ def main():
     df = compute_v6_features(df)
     df = add_injury_features(df)
     df = add_movement_features(df)
+    df = add_gnn_xt_features(df)
     df = add_institutional_signals(df)
     df = enrich_dataset_with_odds(df)
     df = compute_alpha_target(df)
@@ -336,6 +338,8 @@ def main():
         'pressure_diff',
         'elo_uncertainty_x_stage_norm',
         'age_profile_diff',
+        # V8 GNN Features
+        'home_xt_dominance', 'away_xt_dominance', 'xt_dominance_diff',
         # Historical Odds
         'novig_home', 'novig_draw', 'novig_away'
     ]

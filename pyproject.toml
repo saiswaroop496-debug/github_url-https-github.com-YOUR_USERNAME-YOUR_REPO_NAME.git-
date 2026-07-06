@@ -17,4 +17,10 @@ dependencies = [
     "python-dotenv==1.0.1",
     "statsmodels==0.14.2",
     "requests",
+    "statsbombpy>=1.20.0",
+    "tensorflow-probability>=0.25.0",
+    "cvxpy>=1.7.5",
+    "torch>=2.12.1",
+    "torch-geometric>=2.8.0",
+    "filterpy>=1.4.5",
 ]
