@@ -594,6 +594,8 @@ def run_inference(home_team: str, away_team: str,
     """
     is_live = elapsed_minutes is not None
     _ensure_loaded(is_live=is_live)
+    
+    dc_result = None
 
     if _dc_params is None:
         lam_h, lam_a, rho = 1.4, 1.0, -0.13
