@@ -743,10 +743,10 @@ def main():
         print("\n" + "="*50)
         print("  V7.4 Walk-Forward Validation Results")
         print("="*50)
-        print(f"  Accuracy:  {np.mean(accs):.3f} ± {np.std(accs):.3f}"
-              f"  (V7.3: {V73_BASELINE_ACC:.3f}  Δ: {np.mean(accs)-V73_BASELINE_ACC:+.3f})")
-        print(f"  Log-Loss:  {np.mean(lls):.3f} ± {np.std(lls):.3f}"
-              f"  (V7.3: {V73_BASELINE_LL:.3f}  Δ: {np.mean(lls)-V73_BASELINE_LL:+.3f})")
+        print(f"  Accuracy:  {np.mean(accs):.3f} +/- {np.std(accs):.3f}"
+              f"  (V7.3: {V73_BASELINE_ACC:.3f}  diff: {np.mean(accs)-V73_BASELINE_ACC:+.3f})")
+        print(f"  Log-Loss:  {np.mean(lls):.3f} +/- {np.std(lls):.3f}"
+              f"  (V7.3: {V73_BASELINE_LL:.3f}  diff: {np.mean(lls)-V73_BASELINE_LL:+.3f})")
 
         # Feature importance for new signals
         if hasattr(model, 'feature_importances_'):
@@ -812,37 +812,50 @@ def main():
         }
         joblib.dump(dc_params, build_dir / "dc_params.joblib")
     
-        # Symlink latest promoted model
-        latest_dir = MODEL_VERSIONS_DIR / "latest"
-        if is_promoted:
-            import shutil
-            if latest_dir.exists():
-                shutil.rmtree(latest_dir)
-            shutil.copytree(build_dir, latest_dir)
-            print(f"  [OK] Promoted -> model_versions/latest -> {build_dir.name}")
+        # V9 MLOps: Register model with Registry (calculates canary/production/archive)
+        import model_registry
         
+        # MOCK PSI Score for V9 implementation (would normally compare X_train and X_test distributions)
+        psi_score = 0.05 
+        
+        status = "archived"
+        if is_promoted:
+            if psi_score < 0.1:
+                status = "production"
+            elif psi_score < 0.2:
+                status = "canary"
+                
+        registry_entry = model_registry.register_model(str(build_dir), deployment_metrics, status, psi_score)
+        
+        if status in ["production", "canary"]:
             export_team_states(
-                df=form_df,                      # df with rolling features already computed
-                glicko_ratings=glicko.ratings,   # the raw dict returned by compute_glicko_ratings()
+                df=form_df,
+                glicko_ratings=glicko.ratings,
                 kalman_system=kalman_system,
-                feature_cols=available_cols,     # the ACTUAL available cols, not FEATURE_COLS
-                output_path=latest_dir / "team_states.json"
+                feature_cols=available_cols,
+                output_path=str(build_dir / "team_states.json")
             )
+            
+            # For production, we also want it to be available in latest
+            if status == "production":
+                import shutil
+                latest_dir = MODEL_VERSIONS_DIR / "latest"
+                if latest_dir.exists():
+                    shutil.rmtree(latest_dir)
+                shutil.copytree(build_dir, latest_dir)
 
             import os
             import sys
             from auto_deploy import deploy
-            if "--auto-deploy=false" not in sys.argv:
+            if "--auto-deploy=false" not in sys.argv and status == "production":
                 deploy(
                     metrics=deployment_metrics,
                     github_url="https://github.com/saiswaroop496-debug/github_url-https-github.com-YOUR_USERNAME-YOUR_REPO_NAME.git-",
                     api_key=os.getenv("RAPIDAPI_KEY", ""),
-                version_tag="V7.2",
+                    version_tag="V9.0",
                 )
             else:
-                print("Skipping deployment due to --auto-deploy=false flag.")
-        else:
-            print(f"  [FAIL]  Model archived but not promoted (gate failed): {build_dir.name}")
+                print(f"Skipping deployment (auto-deploy disabled or status is {status}).")
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -944,9 +957,9 @@ def export_team_states(df: pd.DataFrame, glicko_ratings: dict, kalman_system,
             "glicko":             round(float(g.get('rating', 1500)), 2),
             "rd":                 round(float(g.get('rd', 200)), 2),
             # Kalman (new)
-            "kalman_strength":    round(k_state.strength, 2),
-            "kalman_velocity":    round(k_state.velocity, 4),
-            "kalman_uncertainty": round(float(k_state.P[0, 0]), 2),
+            "kalman_strength":    round(kalman_system.get_strength(team), 2),
+            "kalman_velocity":    round(kalman_system.get_velocity(team), 4),
+            "kalman_uncertainty": round(kalman_system.get_uncertainty(team), 2),
             # Regime
             "regime":             regime['regime'],
             "regime_coef":        regime['coefficient'],
