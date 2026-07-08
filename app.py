@@ -371,12 +371,6 @@ with col_tier:
                             key="tier_radio", horizontal=False)
     is_syndicate = "Syndicate" in tier_choice
 
-    if is_syndicate:
-        api_key_input = st.text_input("Syndicate Key", type="password",
-                                       placeholder="Enter API key")
-        is_syndicate = (api_key_input == st.secrets.get("API_SERVER_KEY", "syndicate"))
-        if api_key_input and not is_syndicate:
-            st.error("Invalid key")
 
 # ─── MODE SELECTOR ────────────────────────────────────────────────────────────
 st.markdown("---")
