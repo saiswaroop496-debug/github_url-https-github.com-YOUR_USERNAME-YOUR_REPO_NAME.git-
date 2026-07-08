@@ -567,7 +567,7 @@ if st.button("▶ Run Prediction Engine", type="primary", use_container_width=Tr
             with v9_tabs[0]:
                 st.markdown("### Soft Actor-Critic (SAC) Limit Order Execution")
                 try:
-                    from execution.rl_agent import SoftActorCriticAgent
+                    from execution.rl_agent import SACExecutionAgent
                     import torch
                     import numpy as np
                     
@@ -575,10 +575,10 @@ if st.button("▶ Run Prediction Engine", type="primary", use_container_width=Tr
                     edge = edge_val if edge_val else 0.05
                     implied = max(0.01, p_h - edge)
                     mock_state = np.array([edge, p_h, implied, 0.05, 0.1, 2.0, 2.05, 0.05, 0.02, 0.9])
-                    agent = SoftActorCriticAgent(10, 2, 256)
+                    agent = SACExecutionAgent(state_dim=10, action_dim=2)
                     # For demo purposes, we just get an action from the untrained network
-                    action = agent.select_action(mock_state)
-                    urgency, size_frac = action
+                    action = agent.get_action(mock_state)
+                    size_frac, urgency = action  # Action 0: Tranche Size, Action 1: Price Aggressiveness
                     
                     r1, r2, r3 = st.columns(3)
                     r1.metric("Execution Urgency", f"{urgency:.2f}", help="-1.0 = Provide Liquidity, 1.0 = Cross Spread")
