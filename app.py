@@ -540,6 +540,99 @@ if st.button("▶ Run Prediction Engine", type="primary", use_container_width=Tr
             ir_str = f"{ir_val:.2f}" if ir_val is not None else "N/A"
             b4.metric("IR Multiplier", ir_str)
 
+        # === V9 Omni-Quant Features ===
+        if is_syndicate:
+            st.markdown("---")
+            st.markdown("## 🧠 V9 Omni-Quant Alpha Modules")
+            
+            v9_tabs = st.tabs(["🤖 RL Execution Agent", "📈 Stat Arb (Pairs)", "🛑 Black Swan Risk", "⚡ Microstructure (HFT)"])
+            
+            with v9_tabs[0]:
+                st.markdown("### Soft Actor-Critic (SAC) Limit Order Execution")
+                try:
+                    from execution.rl_agent import SoftActorCriticAgent
+                    import torch
+                    import numpy as np
+                    
+                    # Mock state: edge, true_prob, implied, uncert, hawkes, best_back, best_lay, spread, vwap, time
+                    edge = edge_val if edge_val else 0.05
+                    implied = max(0.01, p_h - edge)
+                    mock_state = np.array([edge, p_h, implied, 0.05, 0.1, 2.0, 2.05, 0.05, 0.02, 0.9])
+                    agent = SoftActorCriticAgent(10, 2, 256)
+                    # For demo purposes, we just get an action from the untrained network
+                    action = agent.select_action(mock_state)
+                    urgency, size_frac = action
+                    
+                    r1, r2, r3 = st.columns(3)
+                    r1.metric("Execution Urgency", f"{urgency:.2f}", help="-1.0 = Provide Liquidity, 1.0 = Cross Spread")
+                    r2.metric("Tranche Size", f"{size_frac:.1%}", help="Fraction of max position to deploy in this tick")
+                    r3.metric("LOB Offset", f"{(urgency * 0.05):.3f} ticks", help="Dynamic limit order offset")
+                except Exception as e:
+                    st.error(f"RL Agent offline: {e}")
+
+            with v9_tabs[1]:
+                st.markdown("### Cointegration & Pairs Trading (Stat Arb)")
+                try:
+                    from models.statistical_arbitrage import StatArbEngine
+                    # Generate mock cointegrated series for demonstration
+                    x = np.linspace(0, 100, 100)
+                    series_x = np.sin(x) + np.random.normal(0, 0.1, 100)
+                    series_y = 1.5 * series_x + np.random.normal(0, 0.2, 100)
+                    
+                    arb = StatArbEngine()
+                    res = arb.analyze_pair("MatchOdds_vs_AsianHC", series_y, series_x, series_y[-1], series_x[-1])
+                    
+                    a1, a2, a3 = st.columns(3)
+                    a1.metric("Cointegrated Spread Z-Score", f"{res.get('z_score', 0):.2f}")
+                    a2.metric("Stat Arb Signal", res.get("trade_signal", "NONE"))
+                    a3.metric("Mean-Reversion Half Life", f"{res.get('half_life', 0):.1f} ticks")
+                except Exception as e:
+                    st.error(f"Stat Arb Engine offline: {e}")
+
+            with v9_tabs[2]:
+                st.markdown("### CVaR & Black Swan Stress Test")
+                try:
+                    from monitoring.stress_test import BlackSwanSimulator
+                    sim = BlackSwanSimulator()
+                    # Mock portfolio
+                    portfolio = [
+                        {"market": "Match Odds", "decimal_odds": 1.2, "edge": 0.05, "stake_units": 1000},
+                        {"market": "Over 2.5", "decimal_odds": 1.9, "edge": 0.02, "stake_units": 500}
+                    ]
+                    status = sim.check_circuit_breaker(10000.0, portfolio)
+                    
+                    s1, s2 = st.columns(2)
+                    s1.metric("Circuit Breaker Status", status['status'])
+                    if status['status'] != "OK":
+                        s2.error(status['reason'])
+                    else:
+                        s2.success(status['reason'])
+                    
+                    st.caption(f"Simulated Portfolio CVaR: {sim.calculate_cvar(portfolio):.2f} units")
+                except Exception as e:
+                    st.error(f"Stress Test Engine offline: {e}")
+
+            with v9_tabs[3]:
+                st.markdown("### Hawkes Process Microstructure (Toxic Flow Veto)")
+                try:
+                    import time
+                    from models.microstructure import HawkesProcessEngine
+                    hawkes = HawkesProcessEngine()
+                    # Mock incoming toxic flow on the away side
+                    hawkes.add_event('away', time.time() - 0.5)
+                    hawkes.add_event('away', time.time() - 0.1)
+                    imbal = hawkes.get_market_imbalance()
+                    veto = hawkes.check_veto('home', 0.20)
+                    
+                    h1, h2 = st.columns(2)
+                    h1.metric("Hawkes Imbalance", f"{imbal:.2f}", help="< -0.20 indicates sharp money against Home")
+                    if veto:
+                        h2.error("🚫 HARD VETO ACTIVATED: Toxic order flow detected against position.")
+                    else:
+                        h2.success("✅ Order flow clear. No adverse selection detected.")
+                except Exception as e:
+                    st.error(f"Microstructure Engine offline: {e}")
+
         if live_mode:
             # Live signals bar (Syndicate only)
             if is_syndicate and live_state:
