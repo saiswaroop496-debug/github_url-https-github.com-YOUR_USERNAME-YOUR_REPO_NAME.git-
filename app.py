@@ -540,6 +540,29 @@ if st.button("▶ Run Prediction Engine", type="primary", use_container_width=Tr
             ir_str = f"{ir_val:.2f}" if ir_val is not None else "N/A"
             b4.metric("IR Multiplier", ir_str)
 
+            # Live Capital Arbitrage Allocator
+            st.markdown("#### 💸 Live Capital Arbitrage Allocator")
+            st.caption("Calculate exact wager sizes for live-odds betting using Kelly Criterion edge.")
+            c_bankroll, c_wager, c_pnl = st.columns(3)
+            current_bankroll = c_bankroll.number_input("Current Live Bankroll (INR/$)", min_value=10.0, value=1000.0, step=100.0)
+            
+            if kelly_val is not None and kelly_val > 0:
+                recommended_wager = current_bankroll * kelly_val
+                # Assuming decimal odds for the best bet (we need to match best_bet to the odds)
+                bb = result.get("best_bet", "")
+                if "Home" in bb: bet_odds = home_odds
+                elif "Away" in bb: bet_odds = away_odds
+                else: bet_odds = draw_odds
+                
+                potential_profit = recommended_wager * (bet_odds - 1)
+                
+                c_wager.metric("Exact Wager to Place", f"{recommended_wager:.2f}")
+                c_pnl.metric("Potential Profit", f"+{potential_profit:.2f}")
+            else:
+                c_wager.metric("Exact Wager to Place", "0.00")
+                c_pnl.metric("Potential Profit", "0.00")
+                st.info("No positive edge found at current live odds. Do not place a bet.")
+
         # === V9 Omni-Quant Features ===
         if is_syndicate:
             st.markdown("---")
