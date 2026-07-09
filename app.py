@@ -380,7 +380,7 @@ if app_mode == "🧮 Simple Arbitrage Calculator":
     st.markdown("## 🧮 Simple Dutching & Arbitrage Calculator")
     st.write("Enter your total betting money and the odds. This tool calculates exactly how much to bet on each outcome to guarantee an equal profit, or how to distribute risk across multiple outcomes.")
     
-    total_stake = st.number_input("Total Money to Bet (Stake)", min_value=1.0, value=1000.0, step=100.0)
+    total_stake = st.number_input("Total Money to Bet (Stake) - Click inside the box to type any amount:", min_value=0.01, value=1000.00, step=100.0, format="%.2f")
     
     st.markdown("### Enter Ratios (Decimal Odds)")
     o1, o2, o3 = st.columns(3)
