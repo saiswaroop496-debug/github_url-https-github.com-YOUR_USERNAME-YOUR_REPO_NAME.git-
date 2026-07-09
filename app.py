@@ -374,9 +374,86 @@ with col_tier:
 
 # ─── MODE SELECTOR ────────────────────────────────────────────────────────────
 st.markdown("---")
-app_mode = st.radio("App Mode", ["Prediction Engine", "Arbitrage Simulator"], horizontal=True)
+app_mode = st.radio("App Mode", ["🧮 Simple Arbitrage Calculator", "🤖 Prediction Engine", "📊 Historical Backtest"], horizontal=True)
 
-if app_mode == "Arbitrage Simulator":
+if app_mode == "🧮 Simple Arbitrage Calculator":
+    st.markdown("## 🧮 Simple Dutching & Arbitrage Calculator")
+    st.write("Enter your total betting money and the odds. This tool calculates exactly how much to bet on each outcome to guarantee an equal profit, or how to distribute risk across multiple outcomes.")
+    
+    total_stake = st.number_input("Total Money to Bet (Stake)", min_value=1.0, value=1000.0, step=100.0)
+    
+    st.markdown("### Enter Ratios (Decimal Odds)")
+    o1, o2, o3 = st.columns(3)
+    odds_home = o1.number_input("Home Win Odds", min_value=1.01, value=2.50, step=0.1)
+    odds_draw = o2.number_input("Draw Odds", min_value=1.01, value=3.20, step=0.1)
+    odds_away = o3.number_input("Away Win Odds", min_value=1.01, value=2.90, step=0.1)
+    
+    # Calculate implied probabilities
+    p_h = 1 / odds_home
+    p_d = 1 / odds_draw
+    p_a = 1 / odds_away
+    
+    total_implied = p_h + p_d + p_a
+    
+    st.markdown("---")
+    st.markdown("### 1. Pure Arbitrage (Betting on All 3)")
+    if total_implied < 1.0:
+        st.success(f"✅ Guaranteed Arbitrage Opportunity Found! (Total Implied Probability: {total_implied:.2%})")
+        stake_h = total_stake * (p_h / total_implied)
+        stake_d = total_stake * (p_d / total_implied)
+        stake_a = total_stake * (p_a / total_implied)
+        
+        profit = (total_stake / total_implied) - total_stake
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Bet on Home", f"{stake_h:.2f}")
+        c2.metric("Bet on Draw", f"{stake_d:.2f}")
+        c3.metric("Bet on Away", f"{stake_a:.2f}")
+        c4.metric("Guaranteed Profit", f"+{profit:.2f}")
+    else:
+        st.error(f"❌ No Arbitrage on all 3 outcomes. Bookmaker margin is positive (Total Implied: {total_implied:.2%}). You will lose money if you bet on all 3.")
+
+    st.markdown("### 2. Dutching (Covering 2 Outcomes)")
+    st.write("If you want to bet on multiple outcomes (e.g. Home AND Draw) to guarantee a profit if either hits.")
+    
+    tabs = st.tabs(["Cover Home + Draw", "Cover Home + Away", "Cover Away + Draw"])
+    
+    with tabs[0]:
+        t_hd = p_h + p_d
+        sh = total_stake * (p_h / t_hd)
+        sd = total_stake * (p_d / t_hd)
+        ret = total_stake / t_hd
+        st.metric("Total Implied (H+D)", f"{t_hd:.2%}")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Bet on Home", f"{sh:.2f}")
+        c2.metric("Bet on Draw", f"{sd:.2f}")
+        c3.metric("Profit if H or D wins", f"{ret - total_stake:.2f}")
+        
+    with tabs[1]:
+        t_ha = p_h + p_a
+        sh = total_stake * (p_h / t_ha)
+        sa = total_stake * (p_a / t_ha)
+        ret = total_stake / t_ha
+        st.metric("Total Implied (H+A)", f"{t_ha:.2%}")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Bet on Home", f"{sh:.2f}")
+        c2.metric("Bet on Away", f"{sa:.2f}")
+        c3.metric("Profit if H or A wins", f"{ret - total_stake:.2f}")
+        
+    with tabs[2]:
+        t_ad = p_a + p_d
+        sa = total_stake * (p_a / t_ad)
+        sd = total_stake * (p_d / t_ad)
+        ret = total_stake / t_ad
+        st.metric("Total Implied (A+D)", f"{t_ad:.2%}")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Bet on Away", f"{sa:.2f}")
+        c2.metric("Bet on Draw", f"{sd:.2f}")
+        c3.metric("Profit if A or D wins", f"{ret - total_stake:.2f}")
+        
+    st.stop()
+
+if app_mode == "📊 Historical Backtest":
     st.markdown("## 📊 Historical Arbitrage Backtest & Simulation (2026 Scenarios)")
     st.write("Using the V7.2 Poisson Dixon-Coles Model with Simultaneous Kelly Criterion")
     
